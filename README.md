@@ -68,6 +68,13 @@ The Worker ships with a test suite covering routing, authentication, validation,
 npm test
 ```
 
+The Worker is deployed with Wrangler, from `wrangler.jsonc`. The admin token is a Worker secret, set separately and never stored in the repository:
+
+```
+npx wrangler@4.150.0 deploy
+npx wrangler@4.150.0 secret put ADMIN_TOKEN
+```
+
 ---
 
 *Leonardo Villa — Digital Tech Laboratory Specialist, Nuova Accademia di Belle Arti, Milan*

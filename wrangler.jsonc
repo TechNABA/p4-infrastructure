@@ -1,0 +1,29 @@
+// Worker su Cloudflare. Si pubblica con: npx wrangler@4.150.0 deploy
+// Stessa configurazione che aveva in produzione il 13/10/2026, senza variabili.
+// ADMIN_TOKEN è un secret e non sta qui: npx wrangler@4.150.0 secret put ADMIN_TOKEN
+{
+  "name": "perforce-registration",
+  "main": "worker.js",
+  "compatibility_date": "2026-04-13",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "redact_query_string": false,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": false,
+      "persist": true,
+      "head_sampling_rate": 1
+    }
+  },
+  "kv_namespaces": [
+    { "binding": "USERS", "id": "b7b479d15db34190a487a9ae3ee1681e" }
+  ]
+}

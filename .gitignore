@@ -15,6 +15,7 @@ HANDOFF.md
 
 # Node (serve solo per lanciare i test del worker)
 node_modules/
+.wrangler/
 
 # Python
 __pycache__/
