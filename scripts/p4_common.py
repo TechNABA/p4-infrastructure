@@ -37,7 +37,7 @@ P4_NAME_RE = re.compile(r"^(?!\d+$)(?!.*\.\.\.)[A-Za-z0-9_][A-Za-z0-9._-]*$")
 
 
 class P4Error(RuntimeError):
-    """Valore rifiutato prima ancora di arrivare al server."""
+    """Valore rifiutato prima ancora di arrivare al server, o lettura fallita."""
 
 
 def valid_p4_name(name: str) -> bool:
@@ -222,8 +222,23 @@ def parse_view_depots(spec_text: str) -> set[str]:
 
 
 # ── Letture ─────────────────────────────────────────────────────
-def user_exists(client: P4Client, username: str) -> bool:
-    return username in client.run("users", username).stdout
+def find_user(client: P4Client, username: str) -> str | None:
+    """
+    Il nome dell'account come lo salva il server, None se non esiste.
+
+    Il filtro lo fa il server con le sue regole: su un server case-insensitive
+    'mario_rossi' trova 'Mario_Rossi', e negli spec dei gruppi va quella
+    grafia. Un utente che non c'è esce con 0, stdout vuoto e "no such user(s)"
+    su stderr. Qualunque altra risposta senza nome è un P4Error: in cleanup un
+    "non esiste" sbagliato porterebbe i record a 'removed' con l'account attivo.
+    """
+    result = client.run("users", username)
+    names = result.stdout.split()
+    if result.returncode == 0 and names:
+        return names[0]
+    if result.returncode == 0 and "no such user" in result.stderr:
+        return None
+    raise P4Error(f"p4 users fallito: {result.stderr.strip()}")
 
 
 def user_groups(client: P4Client, username: str) -> list[str]:

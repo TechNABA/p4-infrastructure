@@ -104,10 +104,17 @@ def canonical_team(team: str, known=()) -> str:
     return find_name(names, team) or team
 
 
-def create_user(username: str, full_name: str, email: str, password: str = None, dry_run: bool = False) -> bool:
-    if p4c.user_exists(P4, username):
-        print(f"    [skip] Utente '{username}' già esistente")
-        return True
+def create_user(username: str, full_name: str, email: str, password: str = None,
+                dry_run: bool = False) -> str | None:
+    """Il nome dell'account sul server, None se non c'è e non si è potuto creare."""
+    try:
+        existing = p4c.find_user(P4, username)
+    except P4Error as e:
+        print(f"    [ERRORE] Utente '{username}' non verificato: {e}")
+        return None
+    if existing:
+        print(f"    [skip] Utente '{existing}' già esistente")
+        return existing
 
     # Nome ed email arrivano dal form pubblico: tab e a capo spezzerebbero lo
     # spec e permetterebbero di iniettare campi che non abbiamo scritto noi.
@@ -119,12 +126,12 @@ def create_user(username: str, full_name: str, email: str, password: str = None,
 
     if dry_run:
         print(f"    [dry-run] Creerebbe l'utente '{username}'")
-        return True
+        return username
 
     result = P4.run("user", "-f", "-i", stdin_text=spec)
     if result.returncode != 0:
         print(f"    [ERRORE] Creazione utente '{username}' fallita: {result.stderr.strip()}")
-        return False
+        return None
 
     print(f"    [creato] Utente '{username}'")
 
@@ -135,7 +142,7 @@ def create_user(username: str, full_name: str, email: str, password: str = None,
         else:
             print(f"    [ATTENZIONE] Password non impostata per '{username}': {result.stderr.strip()}")
 
-    return True
+    return username
 
 
 def create_group(group_name: str, dry_run: bool = False) -> bool:
@@ -456,11 +463,12 @@ Esempi:
             all_ok = False
         else:
             # 2. Utente
-            if not create_user(username, full_name, email, initial_password, args.dry_run):
-                all_ok = False
+            p4_name = create_user(username, full_name, email, initial_password, args.dry_run)
 
-            # 3. Utente nel gruppo
-            if not add_user_to_group(username, team, args.dry_run):
+            # 3. Utente nel gruppo, con la grafia che ha sul server: è quella
+            # che perforce_prune e perforce_cleanup cercano negli spec. Senza
+            # account niente gruppo: il nome darebbe accesso a chi lo crea dopo.
+            if not p4_name or not add_user_to_group(p4_name, team, args.dry_run):
                 all_ok = False
 
         # 4. Nuovo status

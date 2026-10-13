@@ -197,6 +197,34 @@ class TestGroupSpec(unittest.TestCase):
         self.assertEqual(p4c.parse_group_members(nuovo), ["mario_rossi"])
 
 
+# ── find_user(): il nome come lo salva il server ────────────────
+def users_line(name):
+    return f"{name} <{name.lower()}@x.it> ({name}) accessed 2026/10/01\n"
+
+
+class TestFindUser(unittest.TestCase):
+    def test_restituisce_il_nome_come_lo_salva_il_server(self):
+        # Server case-insensitive: 'p4 users mario_rossi' risponde con la
+        # grafia salvata, verificato su P4D/NTX64/2025.2.
+        client = FakeP4([completed(stdout=users_line("Mario_Rossi"))])
+        self.assertEqual(p4c.find_user(client, "mario_rossi"), "Mario_Rossi")
+
+    def test_utente_inesistente_da_none(self):
+        # Il server risponde con exit 0, stdout vuoto e il messaggio su stderr.
+        client = FakeP4([completed(stderr="mario_rossi - no such user(s).\n")])
+        self.assertIsNone(p4c.find_user(client, "mario_rossi"))
+
+    def test_comando_fallito_non_passa_per_utente_inesistente(self):
+        client = FakeP4([completed(returncode=1, stderr="Connect to server failed")])
+        with self.assertRaises(p4c.P4Error):
+            p4c.find_user(client, "mario_rossi")
+
+    def test_risposta_vuota_senza_no_such_user_non_passa_per_utente_inesistente(self):
+        client = FakeP4([completed(stderr="un avviso che non conosciamo\n")])
+        with self.assertRaises(p4c.P4Error):
+            p4c.find_user(client, "mario_rossi")
+
+
 class TestViewDepots(unittest.TestCase):
     def test_estrae_i_depot_dalla_view(self):
         spec = (
@@ -515,7 +543,7 @@ class TestCleanupNonCancellaUtenteSeUnErroreCePrecedente(unittest.TestCase):
              mock.patch.object(perforce_cleanup.naba_store, "fetch_users", return_value=[]), \
              mock.patch.object(p4c, "ask_p4_connection", return_value=fake), \
              mock.patch.object(p4c, "connect", return_value=completed()), \
-             mock.patch.object(p4c, "user_exists", return_value=True), \
+             mock.patch.object(p4c, "find_user", return_value="mario_rossi"), \
              mock.patch.object(p4c, "user_groups", return_value=[]), \
              mock.patch.object(p4c, "user_workspaces", return_value=["ws1"]), \
              mock.patch.object(p4c, "pending_changes", return_value=[]), \
@@ -540,7 +568,7 @@ class TestCleanupNonToccaIlKvSePerforceHaFallito(unittest.TestCase):
 
     def run_cleanup(self, argv, fake=None, **p4_values):
         values = {
-            "user_exists": True,
+            "find_user": "mario_rossi",
             "user_groups": ["Alfa"],
             "user_workspaces": ["ws1"],
             "pending_changes": [],
@@ -552,6 +580,7 @@ class TestCleanupNonToccaIlKvSePerforceHaFallito(unittest.TestCase):
         store = perforce_cleanup.naba_store
         patch_status = mock.MagicMock(return_value={"updated": 1, "failed": []})
         delete_record = mock.MagicMock(return_value=1)
+        self.patch_status, self.delete_record = patch_status, delete_record
         with contextlib.ExitStack() as stack:
             enter = stack.enter_context
             enter(mock.patch.object(sys, "argv", ["perforce_cleanup.py", *argv]))
@@ -564,8 +593,10 @@ class TestCleanupNonToccaIlKvSePerforceHaFallito(unittest.TestCase):
             enter(mock.patch.object(store, "delete_user", delete_record))
             enter(mock.patch.object(p4c, "ask_p4_connection", return_value=fake or FakeP4()))
             enter(mock.patch.object(p4c, "connect", return_value=completed()))
+            self.p4 = {}
             for name, value in values.items():
-                enter(mock.patch.object(p4c, name, return_value=value))
+                how = {"side_effect": value} if isinstance(value, Exception) else {"return_value": value}
+                self.p4[name] = enter(mock.patch.object(p4c, name, **how))
             perforce_cleanup.main()
         return out.getvalue(), patch_status, delete_record
 
@@ -610,6 +641,36 @@ class TestCleanupNonToccaIlKvSePerforceHaFallito(unittest.TestCase):
             user_groups=["Alfa", "Beta"])
         self.assertNotIn("porterebbe a 'removed'", out)
         self.assertIn("[dry-run] KV non verrebbe aggiornato: 1 errore/i su Perforce", out)
+
+    def test_usa_il_nome_come_lo_salva_il_server(self):
+        # Negli spec dei gruppi c'è la grafia del server: con quella del KV
+        # remove_user_from_group non troverebbe l'utente e lo lascerebbe dentro.
+        self.run_cleanup(["--user", "mario_rossi"], find_user="Mario_Rossi")
+        self.assertEqual(self.p4["remove_user_from_group"].call_args.args[1], "Mario_Rossi")
+        self.assertEqual(self.p4["delete_user"].call_args.args[1], "Mario_Rossi")
+
+    def test_membro_scritto_con_altra_grafia_trattiene_l_account(self):
+        # `p4 groups` dice che è nel gruppo, ma lo spec non ha la grafia del
+        # server: cancellare l'account lascerebbe il nome nel gruppo, e su un
+        # server case-insensitive chi ricrea quel nome erediterebbe l'accesso.
+        out, patch_status, _ = self.run_cleanup(
+            ["--user", "mario_rossi"], find_user="Mario_Rossi",
+            remove_user_from_group=(True, "", False, 1))
+        self.assertIn("[ERRORE] 'Mario_Rossi' non trovato nello spec di 'Alfa'", out)
+        self.p4["delete_user"].assert_not_called()
+        patch_status.assert_not_called()
+
+    def test_p4_users_fallito_ferma_tutto(self):
+        # Senza fermarsi, "non esiste" porterebbe i record a 'removed' con
+        # l'account ancora attivo.
+        with self.assertRaises(SystemExit) as ctx:
+            self.run_cleanup(["--user", "mario_rossi"], find_user=p4c.P4Error("p4 users fallito"))
+        self.assertEqual(ctx.exception.code, 1)
+        self.p4["find_user"].assert_called_once()
+        self.p4["user_groups"].assert_not_called()
+        self.p4["delete_user"].assert_not_called()
+        self.patch_status.assert_not_called()
+        self.delete_record.assert_not_called()
 
 
 class TestPruneNonCancellaLutenteOrfanoSeUnErroreCePrecedente(unittest.TestCase):
@@ -919,6 +980,32 @@ class TestCanonicalTeam(unittest.TestCase):
         self.assertEqual(perforce_provision.canonical_team("staff"), "staff")
 
 
+class TestCreateUser(unittest.TestCase):
+    def tearDown(self):
+        perforce_provision.P4 = None
+
+    def test_account_esistente_con_altra_grafia_non_viene_riscritto(self):
+        perforce_provision.P4 = FakeP4([completed(stdout=users_line("Mario_Rossi"))])
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            name = perforce_provision.create_user("mario_rossi", "Mario Rossi", "m@x.it", "segreta")
+        self.assertEqual(name, "Mario_Rossi")
+        self.assertEqual([c[0] for c in perforce_provision.P4.calls], [("users", "mario_rossi")])
+
+    def test_utente_nuovo_restituisce_il_suo_nome(self):
+        perforce_provision.P4 = FakeP4([completed(stderr="mario_rossi - no such user(s).\n")])
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            name = perforce_provision.create_user("mario_rossi", "Mario Rossi", "m@x.it")
+        self.assertEqual(name, "mario_rossi")
+        self.assertIn(("user", "-f", "-i"), [c[0] for c in perforce_provision.P4.calls])
+
+    def test_p4_users_fallito_non_crea_niente(self):
+        perforce_provision.P4 = FakeP4([completed(returncode=1, stderr="timeout")])
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            name = perforce_provision.create_user("mario_rossi", "Mario Rossi", "m@x.it")
+        self.assertIsNone(name)
+        self.assertEqual(len(perforce_provision.P4.calls), 1)
+
+
 def pending_row(username, team):
     return {"username": username, "full_name": username.replace("_", " ").title(),
             "email": f"{username}@x.it", "team": team, "status": "pending"}
@@ -928,10 +1015,13 @@ class TestProvisionMain(unittest.TestCase):
     def tearDown(self):
         perforce_provision.P4 = None
 
-    def run_provision(self, server, rows, argv=()):
+    def run_provision(self, server, rows, argv=(), stored_names=None, create_fails=False):
         store = perforce_provision.naba_store
         patch_status = mock.MagicMock(return_value={"updated": len(rows), "failed": []})
-        self.create_user = mock.MagicMock(return_value=True)
+        # create_user restituisce il nome che l'account ha sul server.
+        self.create_user = mock.MagicMock(
+            side_effect=lambda username, *args: None if create_fails
+            else (stored_names or {}).get(username, username))
         self.add_user_to_group = mock.MagicMock(return_value=True)
         with contextlib.ExitStack() as stack:
             enter = stack.enter_context
@@ -1020,6 +1110,20 @@ class TestProvisionMain(unittest.TestCase):
         self.create_user.assert_not_called()
         statuses = self.run_provision(FakeServer(), [dict(r) for r in rows], argv=["--retry-errors"])
         self.assertEqual(statuses, ["created"])
+
+    def test_nel_gruppo_va_il_nome_che_l_account_ha_sul_server(self):
+        # Con la grafia del KV perforce_prune non riconoscerebbe il membro
+        # e prenderebbe l'account per orfano.
+        rows = [pending_row("mario_rossi", "Alfa")]
+        statuses = self.run_provision(FakeServer(), rows, stored_names={"mario_rossi": "Mario_Rossi"})
+        self.assertEqual(statuses, ["created"])
+        self.assertEqual(self.add_user_to_group.call_args.args[0], "Mario_Rossi")
+
+    def test_account_non_creato_non_entra_nel_gruppo(self):
+        # Un nome nel gruppo senza account darebbe l'accesso a chi lo crea dopo.
+        statuses = self.run_provision(FakeServer(), [pending_row("mario_rossi", "Alfa")], create_fails=True)
+        self.assertEqual(statuses, ["error"])
+        self.add_user_to_group.assert_not_called()
 
     def test_dry_run_con_varianti_di_maiuscole_mostra_un_solo_team(self):
         server = FakeServer()
