@@ -183,7 +183,15 @@ Esempi:
         print("\n*** DRY RUN — nessuna modifica verrà applicata ***")
 
     # ── Cosa c'è da rimuovere ──
-    exists_on_p4 = p4c.user_exists(P4, username)
+    try:
+        p4_name = p4c.find_user(P4, username)
+    except P4Error as e:
+        print(f"ERRORE: {e}")
+        sys.exit(1)
+    exists_on_p4 = p4_name is not None
+    # La grafia del server è quella negli spec dei gruppi. Il KV confronta gli
+    # username in minuscolo, quindi va bene anche per i record.
+    username = p4_name or username
     p4_groups = p4c.user_groups(P4, username) if exists_on_p4 else []
 
     if team_filter:
@@ -277,7 +285,11 @@ Esempi:
                 print(f"    [ERRORE] '{username}' non rimosso da '{group}': {err}")
                 errors += 1
             elif not was_member:
-                print(f"    [skip] '{username}' non è nel gruppo '{group}'")
+                # `p4 groups` lo dà nel gruppo, ma lo spec non ha questa grafia:
+                # cancellando l'account il nome resterebbe lì a dare accesso.
+                print(f"    [ERRORE] '{username}' non trovato nello spec di '{group}': "
+                      f"controlla a mano con che grafia c'è")
+                errors += 1
             elif args.dry_run:
                 extra = " (ultimo membro: il gruppo verrebbe cancellato)" if remaining == 0 else ""
                 print(f"    [dry-run] Toglierebbe '{username}' dal gruppo '{group}'{extra}")
