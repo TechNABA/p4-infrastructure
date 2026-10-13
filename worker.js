@@ -15,7 +15,6 @@
  *
  * Binding richiesto:  USERS           (KV namespace)
  * Secret richiesti:   ADMIN_TOKEN     (autenticazione endpoint admin)
- *                     DISCORD_WEBHOOK (notifica registrazioni, opzionale)
  *
  * I log del Worker non contengono mai nomi, email o team.
  */
@@ -239,76 +238,40 @@ function sortRecords(records) {
   });
 }
 
-// ── Notifica Discord ──────────────────────────────────────────
-async function notifyDiscord(env, records) {
-  const webhook = env.DISCORD_WEBHOOK;
-  if (!webhook || !records.length) return;
-
-  const lines = records.map(
-    (r) => `• **${r.full_name}** (\`${r.username}\`) — ${r.team}`
-  );
-
-  const payload = {
-    embeds: [
-      {
-        title: "📋 Nuova registrazione Perforce",
-        description: lines.join("\n").slice(0, 4000),
-        color: 2664261,
-        fields: [
-          { name: "Utenti", value: String(records.length), inline: true },
-          { name: "Team", value: records[0].team || "N/A", inline: true },
-          {
-            name: "Tesista",
-            value: (records[0].tesista || "no").replace(/^./, (c) => c.toUpperCase()),
-            inline: true,
-          },
-        ],
-        footer: { text: "Perforce NABA Registration System" },
-      },
-    ],
-  };
-
-  try {
-    // Senza User-Agent custom Cloudflare risponde 403 (error code 1010).
-    const resp = await fetch(webhook, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "NABA-Perforce-Bot/1.0",
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!resp.ok) console.log(`discord webhook: HTTP ${resp.status}`);
-  } catch (err) {
-    console.log(`discord webhook: ${err.message}`);
-  }
-}
-
-// ── Handler: POST / (pubblico) ────────────────────────────────
-async function handleRegister(request, env, ctx) {
+// ── Lettura del batch ─────────────────────────────────────────
+/**
+ * Il corpo JSON: un array, nudo o sotto `key`, di 1..max elementi.
+ * Ritorna {items} oppure {error}; [one, many] sono le parole dei messaggi.
+ */
+async function readBatch(request, key, max, [one, many]) {
   let body;
   try {
     body = await request.json();
   } catch {
-    return json({ success: false, error: "JSON non valido" }, 400, corsHeaders(request));
+    return { error: "JSON non valido" };
   }
 
-  const incoming = Array.isArray(body) ? body : body?.users;
-  if (!Array.isArray(incoming) || incoming.length === 0) {
-    return json({ success: false, error: "nessun utente nella richiesta" }, 400, corsHeaders(request));
+  const items = Array.isArray(body) ? body : body?.[key];
+  if (!Array.isArray(items) || items.length === 0) {
+    return { error: `nessun ${one} nella richiesta` };
   }
-  if (incoming.length > MAX_BATCH_PUBLIC) {
-    return json(
-      { success: false, error: `massimo ${MAX_BATCH_PUBLIC} utenti per richiesta` },
-      400,
-      corsHeaders(request)
-    );
+  if (items.length > max) {
+    return { error: `massimo ${max} ${many} per richiesta` };
+  }
+  return { items };
+}
+
+// ── Handler: POST / (pubblico) ────────────────────────────────
+async function handleRegister(request, env) {
+  const batch = await readBatch(request, "users", MAX_BATCH_PUBLIC, ["utente", "utenti"]);
+  if (batch.error) {
+    return json({ success: false, error: batch.error }, 400, corsHeaders(request));
   }
 
   const results = [];
-  const stored = [];
+  let stored = 0;
 
-  for (const raw of incoming) {
+  for (const raw of batch.items) {
     const { record, error } = normalizeUser(raw, { defaultStatus: "pending" });
     if (error) {
       results.push({ username: clean(raw?.username, 64), ok: false, error });
@@ -329,16 +292,12 @@ async function handleRegister(request, env, ctx) {
     if (others.length > 0) record.status = "duplicate";
 
     await putUser(env, record);
-    stored.push(record);
+    stored++;
     results.push({ username: record.username, ok: true, status: record.status });
   }
 
-  if (stored.length) {
-    ctx.waitUntil(notifyDiscord(env, stored));
-  }
-
   const failed = results.filter((r) => !r.ok);
-  if (stored.length === 0 && failed.length > 0) {
+  if (stored === 0 && failed.length > 0) {
     return json(
       { success: false, error: failed[0].error, results },
       400,
@@ -346,39 +305,26 @@ async function handleRegister(request, env, ctx) {
     );
   }
 
-  console.log(`register: ${stored.length} stored, ${failed.length} rejected`);
-  return json({ success: true, stored: stored.length, results }, 200, corsHeaders(request));
+  console.log(`register: ${stored} stored, ${failed.length} rejected`);
+  return json({ success: true, stored, results }, 200, corsHeaders(request));
 }
 
 // ── Handler: POST /import (admin) ─────────────────────────────
 async function handleImport(request, env) {
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return json({ success: false, error: "JSON non valido" }, 400);
-  }
-
-  const incoming = Array.isArray(body) ? body : body?.users;
-  if (!Array.isArray(incoming) || incoming.length === 0) {
-    return json({ success: false, error: "nessun utente nella richiesta" }, 400);
-  }
-  if (incoming.length > MAX_BATCH_ADMIN) {
-    return json({ success: false, error: `massimo ${MAX_BATCH_ADMIN} utenti per richiesta` }, 400);
-  }
+  const batch = await readBatch(request, "users", MAX_BATCH_ADMIN, ["utente", "utenti"]);
+  if (batch.error) return json({ success: false, error: batch.error }, 400);
 
   const url = new URL(request.url);
   const skipExisting = url.searchParams.get("mode") === "skip-existing";
-  const defaultStatus = clean(url.searchParams.get("default_status"), 16) || "pending";
+  const requestedStatus = clean(url.searchParams.get("default_status"), 16);
+  const defaultStatus = VALID_STATUS.has(requestedStatus) ? requestedStatus : "pending";
 
   const results = [];
   let written = 0;
   let skipped = 0;
 
-  for (const raw of incoming) {
-    const { record, error } = normalizeUser(raw, {
-      defaultStatus: VALID_STATUS.has(defaultStatus) ? defaultStatus : "pending",
-    });
+  for (const raw of batch.items) {
+    const { record, error } = normalizeUser(raw, { defaultStatus });
     if (error) {
       results.push({ username: clean(raw?.username, 64), ok: false, error });
       continue;
@@ -431,25 +377,13 @@ async function handleExport(request, env) {
 
 // ── Handler: PATCH /status (admin) ────────────────────────────
 async function handleStatus(request, env) {
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return json({ success: false, error: "JSON non valido" }, 400);
-  }
-
-  const updates = Array.isArray(body) ? body : body?.updates;
-  if (!Array.isArray(updates) || updates.length === 0) {
-    return json({ success: false, error: "nessun aggiornamento nella richiesta" }, 400);
-  }
-  if (updates.length > MAX_BATCH_ADMIN) {
-    return json({ success: false, error: `massimo ${MAX_BATCH_ADMIN} aggiornamenti per richiesta` }, 400);
-  }
+  const batch = await readBatch(request, "updates", MAX_BATCH_ADMIN, ["aggiornamento", "aggiornamenti"]);
+  if (batch.error) return json({ success: false, error: batch.error }, 400);
 
   const results = [];
   let updated = 0;
 
-  for (const item of updates) {
+  for (const item of batch.items) {
     const username = clean(item?.username, 64);
     const team = clean(item?.team, 64);
     const status = clean(item?.status, 16).toLowerCase();
@@ -546,7 +480,7 @@ async function handlePurge(request, env) {
 
 // ── Router ────────────────────────────────────────────────────
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     const method = request.method.toUpperCase();
@@ -579,7 +513,7 @@ export default {
         return json({ ok: true, service: "naba-perforce-registration" });
       }
       if (path === "/" && method === "POST") {
-        return await handleRegister(request, env, ctx);
+        return await handleRegister(request, env);
       }
 
       // Admin

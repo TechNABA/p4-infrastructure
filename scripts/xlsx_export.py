@@ -20,11 +20,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from naba_store import FIELDS
 
-FIELDS = [
-    "timestamp", "username", "full_name", "email",
-    "team", "tesista", "anno_corso", "status",
-]
 
 HEADER_LABELS = {
     "timestamp": "Data registrazione",

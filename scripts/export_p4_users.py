@@ -105,18 +105,9 @@ def get_user_groups() -> dict[str, list[str]]:
         if spec_result.returncode != 0:
             continue
 
-        in_users = False
-        for line in spec_result.stdout.split("\n"):
-            if line.startswith("Users:"):
-                in_users = True
-                continue
-            if in_users:
-                if line.startswith("\t"):
-                    member = line.strip()
-                    if member.lower() not in EXCLUDE_USERS:
-                        user_groups.setdefault(member, []).append(group_name)
-                else:
-                    in_users = False
+        for member in p4c.parse_group_members(spec_result.stdout):
+            if member.lower() not in EXCLUDE_USERS:
+                user_groups.setdefault(member, []).append(group_name)
 
     return user_groups
 

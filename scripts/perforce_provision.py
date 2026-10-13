@@ -19,9 +19,6 @@ per IP.
 Uso:
     python perforce_provision.py                            # provisioning
     python perforce_provision.py --dry-run                  # anteprima
-    python perforce_provision.py --skip-discord             # niente ruoli/canali
-    python perforce_provision.py --skip-email               # niente email
-    python perforce_provision.py --category Tesi            # categoria Discord
     python perforce_provision.py --export-xlsx utenti.xlsx  # XLSX in locale
     python perforce_provision.py --retry-errors             # riprova anche gli 'error'
 
@@ -56,10 +53,6 @@ P4 = None
 
 
 # ── helper p4 ───────────────────────────────────────────────────
-def p4_user_exists(username: str) -> bool:
-    return username in P4.run("users", username).stdout
-
-
 def list_groups() -> list[str] | None:
     """I gruppi del server, None se l'elenco non si legge."""
     result = P4.run("groups")
@@ -112,7 +105,7 @@ def canonical_team(team: str, known=()) -> str:
 
 
 def create_user(username: str, full_name: str, email: str, password: str = None, dry_run: bool = False) -> bool:
-    if p4_user_exists(username):
+    if p4c.user_exists(P4, username):
         print(f"    [skip] Utente '{username}' già esistente")
         return True
 
@@ -338,17 +331,11 @@ della shell.
 Esempi:
   python perforce_provision.py --dry-run
   python perforce_provision.py
-  python perforce_provision.py --skip-discord --skip-email
-  python perforce_provision.py --category Tesi
   python perforce_provision.py --export-xlsx ~/Desktop/utenti.xlsx
   python perforce_provision.py --retry-errors
         """,
     )
     parser.add_argument("--dry-run", action="store_true", help="Anteprima senza modifiche")
-    parser.add_argument("--skip-discord", action="store_true", help="Salta creazione ruoli/canali Discord")
-    parser.add_argument("--skip-email", action="store_true", help="Salta invio email di benvenuto")
-    parser.add_argument("--category", type=str, default="Tesi",
-                        help="Categoria Discord per i nuovi canali (default: Tesi)")
     parser.add_argument("--retry-errors", action="store_true",
                         help="Riprova anche i record in 'error' (es. dopo aver sistemato un team rifiutato)")
     parser.add_argument("--export-xlsx", type=Path, default=None,
@@ -462,7 +449,7 @@ Esempi:
                 failed_teams.add(name)
             resolved[team] = name
         team = resolved[team]
-        user["team"] = team  # Discord ed email usano lo stesso nome di Perforce
+        user["team"] = team  # l'export XLSX usa lo stesso nome di Perforce
 
         if team in failed_teams:
             print(f"    [ERRORE] Team '{team}' non configurato: '{username}' non creato")
@@ -506,73 +493,8 @@ Esempi:
     if args.dry_run:
         print("\n*** Era un dry run. Rilancia senza --dry-run per applicare. ***")
 
-    # ── Discord + Email ──
-    if success_count == 0 and not args.dry_run:
-        print("\nNessun utente creato — Discord/Email saltati.")
-        if args.export_xlsx:
-            export_xlsx(rows, args.export_xlsx)
-        return
-
-    try:
-        from discord_email_provision import provision_discord_and_email
-    except ImportError as e:
-        print(f"\n[ATTENZIONE] Import di discord_email_provision fallito: {e}")
-        print("Verifica che discord_email_provision.py sia nella stessa cartella.")
-        print("Discord/Email saltati.")
-        if args.export_xlsx:
-            export_xlsx(rows, args.export_xlsx)
-        return
-
-    # Solo gli utenti appena processati con successo, non tutto il KV.
-    # Lo status in memoria è aggiornato anche in dry-run.
-    target_users = [u for u in pending if u.get("status") == "created"]
-
-    if not target_users:
-        print("\nNessun utente da configurare su Discord/Email.")
-        if args.export_xlsx:
-            export_xlsx(rows, args.export_xlsx)
-        return
-
-    teams = {}
-    for u in target_users:
-        teams.setdefault(u["team"].strip(), []).append(u)
-
-    print(f"\n{'═' * 50}")
-    print(f"DISCORD + EMAIL ({len(target_users)} utenti, {len(teams)} team)")
-    print(f"{'═' * 50}")
-
-    discord_token = None
-    resend_api_key = None
-
-    if not args.skip_discord:
-        discord_token = getpass.getpass("\nDiscord bot token (Invio per saltare): ")
-        if not discord_token.strip():
-            discord_token = None
-            print("Discord saltato.")
-
-    if not args.skip_email:
-        resend_api_key = getpass.getpass("Resend API key (Invio per saltare): ")
-        if not resend_api_key.strip():
-            resend_api_key = None
-            print("Email saltate.")
-
-    if discord_token or resend_api_key:
-        for team, team_users in teams.items():
-            provision_discord_and_email(
-                users=team_users,
-                discord_token=discord_token,
-                resend_api_key=resend_api_key,
-                category_name=args.category,
-                dry_run=args.dry_run,
-            )
-    else:
-        print("\nEntrambi saltati — niente da fare.")
-
     if args.export_xlsx:
         export_xlsx(rows, args.export_xlsx)
-
-    print(f"\n{'═' * 50}")
-    print("FATTO!")
 
 
 if __name__ == "__main__":

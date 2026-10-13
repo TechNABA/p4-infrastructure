@@ -34,8 +34,6 @@ class MockKV {
   }
 }
 
-const ctx = { waitUntil: (p) => { if (p && p.catch) p.catch(() => {}); } };
-
 function makeEnv() {
   return { USERS: new MockKV(), ADMIN_TOKEN: "tok-segreto-123" };
 }
@@ -80,14 +78,14 @@ async function main() {
   console.log("\n1. Endpoint pubblici");
   {
     const env = makeEnv();
-    let r = await worker.fetch(req("GET", "/"), env, ctx);
+    let r = await worker.fetch(req("GET", "/"), env);
     let b = await r.json();
     check("GET / health", r.status === 200 && b.ok === true);
 
-    r = await worker.fetch(req("GET", "/sconosciuto"), env, ctx);
+    r = await worker.fetch(req("GET", "/sconosciuto"), env);
     check("path sconosciuto → 404", r.status === 404);
 
-    r = await worker.fetch(req("GET", "/"), { ADMIN_TOKEN: "x" }, ctx);
+    r = await worker.fetch(req("GET", "/"), { ADMIN_TOKEN: "x" });
     check("binding USERS mancante → 500", r.status === 500);
   }
 
@@ -95,15 +93,15 @@ async function main() {
   console.log("\n2. CORS");
   {
     const env = makeEnv();
-    let r = await worker.fetch(req("OPTIONS", "/", { origin: "https://p4setup.naba.it" }), env, ctx);
+    let r = await worker.fetch(req("OPTIONS", "/", { origin: "https://p4setup.naba.it" }), env);
     check("preflight da origin consentita → 204", r.status === 204);
     check("preflight espone Allow-Origin",
       r.headers.get("Access-Control-Allow-Origin") === "https://p4setup.naba.it");
 
-    r = await worker.fetch(req("OPTIONS", "/", { origin: "https://evil.example" }), env, ctx);
+    r = await worker.fetch(req("OPTIONS", "/", { origin: "https://evil.example" }), env);
     check("preflight da origin estranea → 403", r.status === 403);
 
-    r = await worker.fetch(req("POST", "/", { origin: "https://p4setup.naba.it", body: { users: [user()] } }), env, ctx);
+    r = await worker.fetch(req("POST", "/", { origin: "https://p4setup.naba.it", body: { users: [user()] } }), env);
     check("POST rispecchia Allow-Origin",
       r.headers.get("Access-Control-Allow-Origin") === "https://p4setup.naba.it");
   }
@@ -112,39 +110,39 @@ async function main() {
   console.log("\n3. POST / registrazione");
   {
     const env = makeEnv();
-    let r = await worker.fetch(req("POST", "/", { body: { users: [user()] } }), env, ctx);
+    let r = await worker.fetch(req("POST", "/", { body: { users: [user()] } }), env);
     let b = await r.json();
     check("registrazione valida", r.status === 200 && b.success && b.stored === 1, JSON.stringify(b));
     check("status iniziale pending", b.results[0].status === "pending");
 
     // stesso utente stesso team
-    r = await worker.fetch(req("POST", "/", { body: { users: [user()] } }), env, ctx);
+    r = await worker.fetch(req("POST", "/", { body: { users: [user()] } }), env);
     b = await r.json();
     check("stesso utente+team → already_exists", b.results[0].status === "already_exists", JSON.stringify(b));
     check("non crea un secondo record", env.USERS.store.size === 1);
 
     // stesso username, team diverso
-    r = await worker.fetch(req("POST", "/", { body: { users: [user({ team: "Beta" })] } }), env, ctx);
+    r = await worker.fetch(req("POST", "/", { body: { users: [user({ team: "Beta" })] } }), env);
     b = await r.json();
     check("stesso username, team diverso → duplicate", b.results[0].status === "duplicate", JSON.stringify(b));
     check("crea comunque il record", env.USERS.store.size === 2);
 
     // record non valido
-    r = await worker.fetch(req("POST", "/", { body: { users: [user({ email: "non-una-email" })] } }), env, ctx);
+    r = await worker.fetch(req("POST", "/", { body: { users: [user({ email: "non-una-email" })] } }), env);
     b = await r.json();
     check("email non valida → 400", r.status === 400 && !b.success, JSON.stringify(b));
 
-    r = await worker.fetch(req("POST", "/", { body: { users: [user({ username: "a b c" })] } }), env, ctx);
+    r = await worker.fetch(req("POST", "/", { body: { users: [user({ username: "a b c" })] } }), env);
     check("username non valido → 400", r.status === 400);
 
-    r = await worker.fetch(req("POST", "/", { body: { users: [] } }), env, ctx);
+    r = await worker.fetch(req("POST", "/", { body: { users: [] } }), env);
     check("array vuoto → 400", r.status === 400);
 
     const troppi = Array.from({ length: 26 }, (_, i) => user({ username: `u_${i}` }));
-    r = await worker.fetch(req("POST", "/", { body: { users: troppi } }), env, ctx);
+    r = await worker.fetch(req("POST", "/", { body: { users: troppi } }), env);
     check("batch oltre il limite → 400", r.status === 400);
 
-    r = await worker.fetch(new Request(BASE + "/", { method: "POST", body: "{non json" }), env, ctx);
+    r = await worker.fetch(new Request(BASE + "/", { method: "POST", body: "{non json" }), env);
     check("body non JSON → 400", r.status === 400);
   }
 
@@ -152,20 +150,20 @@ async function main() {
   console.log("\n4. Autenticazione admin");
   {
     const env = makeEnv();
-    let r = await worker.fetch(req("GET", "/export"), env, ctx);
+    let r = await worker.fetch(req("GET", "/export"), env);
     check("senza token → 401", r.status === 401);
 
-    r = await worker.fetch(req("GET", "/export", { headers: { "X-Admin-Token": "sbagliato" } }), env, ctx);
+    r = await worker.fetch(req("GET", "/export", { headers: { "X-Admin-Token": "sbagliato" } }), env);
     check("token errato → 401", r.status === 401);
 
-    r = await worker.fetch(req("GET", "/export", { headers: { "X-Admin-Token": "tok-segreto-1234" } }), env, ctx);
+    r = await worker.fetch(req("GET", "/export", { headers: { "X-Admin-Token": "tok-segreto-1234" } }), env);
     check("token di lunghezza diversa → 401", r.status === 401);
 
-    r = await worker.fetch(req("GET", "/export", { headers: ADMIN }), env, ctx);
+    r = await worker.fetch(req("GET", "/export", { headers: ADMIN }), env);
     check("token corretto → 200", r.status === 200);
 
     const noToken = { USERS: new MockKV() };
-    r = await worker.fetch(req("GET", "/export", { headers: ADMIN }), noToken, ctx);
+    r = await worker.fetch(req("GET", "/export", { headers: ADMIN }), noToken);
     check("ADMIN_TOKEN non configurato → 401", r.status === 401);
   }
 
@@ -176,24 +174,24 @@ async function main() {
     let r = await worker.fetch(req("POST", "/import", {
       headers: ADMIN,
       body: { users: [user({ status: "existing" }), user({ username: "lucia_bianchi", full_name: "Lucia Bianchi", email: "lucia.bianchi@naba.it", team: "Beta", status: "existing" })] },
-    }), env, ctx);
+    }), env);
     let b = await r.json();
     check("import di 2 record", b.success && b.written === 2, JSON.stringify(b));
 
-    r = await worker.fetch(req("GET", "/export", { headers: ADMIN }), env, ctx);
+    r = await worker.fetch(req("GET", "/export", { headers: ADMIN }), env);
     b = await r.json();
     check("status 'existing' preservato", b.users.every((u) => u.status === "existing"), JSON.stringify(b.users));
 
     // sovrascrittura
-    r = await worker.fetch(req("POST", "/import", { headers: ADMIN, body: { users: [user({ status: "created" })] } }), env, ctx);
+    r = await worker.fetch(req("POST", "/import", { headers: ADMIN, body: { users: [user({ status: "created" })] } }), env);
     b = await r.json();
     check("import sovrascrive di default", b.written === 1);
-    r = await worker.fetch(req("GET", "/export", { headers: ADMIN }), env, ctx);
+    r = await worker.fetch(req("GET", "/export", { headers: ADMIN }), env);
     b = await r.json();
     check("record aggiornato", b.users.find((u) => u.username === "mario_rossi").status === "created");
 
     // skip-existing
-    r = await worker.fetch(req("POST", "/import?mode=skip-existing", { headers: ADMIN, body: { users: [user({ status: "pending" })] } }), env, ctx);
+    r = await worker.fetch(req("POST", "/import?mode=skip-existing", { headers: ADMIN, body: { users: [user({ status: "pending" })] } }), env);
     b = await r.json();
     check("mode=skip-existing salta", b.skipped === 1 && b.written === 0, JSON.stringify(b));
 
@@ -201,7 +199,7 @@ async function main() {
     r = await worker.fetch(req("POST", "/import?default_status=existing", {
       headers: ADMIN,
       body: { users: [{ username: "nuovo_utente", full_name: "Nuovo Utente", email: "n.u@naba.it", team: "Gamma" }] },
-    }), env, ctx);
+    }), env);
     b = await r.json();
     check("default_status applicato", b.results[0].status === "existing", JSON.stringify(b));
 
@@ -209,7 +207,7 @@ async function main() {
     r = await worker.fetch(req("POST", "/import", {
       headers: ADMIN,
       body: { users: [user({ username: "ok_utente" }), { username: "", full_name: "", email: "x", team: "" }] },
-    }), env, ctx);
+    }), env);
     b = await r.json();
     check("import parziale: 1 scritto 1 rifiutato",
       b.written === 1 && b.results.filter((x) => !x.ok).length === 1, JSON.stringify(b));
@@ -227,9 +225,9 @@ async function main() {
         user({ username: "beta_utente", full_name: "Beta Utente", team: "Alpha", anno_corso: "", tesista: "yes", status: "pending" }),
         user({ username: "gamma_utente", full_name: "Gamma Utente", team: "Alpha", anno_corso: "3", tesista: "no", status: "pending" }),
       ] },
-    }), env, ctx);
+    }), env);
 
-    let r = await worker.fetch(req("GET", "/export", { headers: ADMIN }), env, ctx);
+    let r = await worker.fetch(req("GET", "/export", { headers: ADMIN }), env);
     let b = await r.json();
     check("export conta tutti i record", b.count === 4, JSON.stringify(b.count));
 
@@ -238,11 +236,11 @@ async function main() {
       JSON.stringify(ordine) === JSON.stringify(["alfa_utente", "gamma_utente", "beta_utente", "zeta_utente"]),
       JSON.stringify(ordine));
 
-    r = await worker.fetch(req("GET", "/export?status=pending", { headers: ADMIN }), env, ctx);
+    r = await worker.fetch(req("GET", "/export?status=pending", { headers: ADMIN }), env);
     b = await r.json();
     check("filtro per status", b.count === 3, JSON.stringify(b.count));
 
-    r = await worker.fetch(req("GET", "/export?format=csv", { headers: ADMIN }), env, ctx);
+    r = await worker.fetch(req("GET", "/export?format=csv", { headers: ADMIN }), env);
     const csv = await r.text();
     check("csv content-type", r.headers.get("Content-Type").includes("text/csv"));
     check("csv intestazione",
@@ -253,8 +251,8 @@ async function main() {
     await worker.fetch(req("POST", "/import", {
       headers: ADMIN,
       body: { users: [user({ username: "virgola_utente", full_name: 'Rossi, Mario "il Grande"', team: "Delta" })] },
-    }), env, ctx);
-    r = await worker.fetch(req("GET", "/export?format=csv", { headers: ADMIN }), env, ctx);
+    }), env);
+    r = await worker.fetch(req("GET", "/export?format=csv", { headers: ADMIN }), env);
     const csv2 = await r.text();
     check("csv fa escaping di virgole e virgolette",
       csv2.includes('"Rossi, Mario ""il Grande"""'), csv2.split("\n").find((l) => l.includes("virgola")));
@@ -267,23 +265,23 @@ async function main() {
     await worker.fetch(req("POST", "/import", {
       headers: ADMIN,
       body: { users: [user(), user({ team: "Beta" }), user({ username: "altro_utente", full_name: "Altro Utente", email: "a.u@naba.it", team: "Alpha" })] },
-    }), env, ctx);
+    }), env);
 
     let r = await worker.fetch(req("PATCH", "/status", {
       headers: ADMIN,
       body: { updates: [{ username: "mario_rossi", team: "Alpha", status: "created" }] },
-    }), env, ctx);
+    }), env);
     let b = await r.json();
     check("patch con team → 1 record", b.updated === 1, JSON.stringify(b));
 
     r = await worker.fetch(req("PATCH", "/status", {
       headers: ADMIN,
       body: { updates: [{ username: "mario_rossi", status: "removed" }] },
-    }), env, ctx);
+    }), env);
     b = await r.json();
     check("patch senza team → tutti i record dell'utente", b.updated === 2, JSON.stringify(b));
 
-    r = await worker.fetch(req("GET", "/export", { headers: ADMIN }), env, ctx);
+    r = await worker.fetch(req("GET", "/export", { headers: ADMIN }), env);
     b = await r.json();
     check("altri utenti non toccati",
       b.users.find((u) => u.username === "altro_utente").status === "pending");
@@ -292,13 +290,13 @@ async function main() {
 
     r = await worker.fetch(req("PATCH", "/status", {
       headers: ADMIN, body: { updates: [{ username: "mario_rossi", status: "inventato" }] },
-    }), env, ctx);
+    }), env);
     b = await r.json();
     check("status non valido rifiutato", b.updated === 0 && !b.results[0].ok, JSON.stringify(b));
 
     r = await worker.fetch(req("PATCH", "/status", {
       headers: ADMIN, body: { updates: [{ username: "non_esiste", status: "created" }] },
-    }), env, ctx);
+    }), env);
     b = await r.json();
     check("utente inesistente segnalato", !b.results[0].ok, JSON.stringify(b));
   }
@@ -310,27 +308,27 @@ async function main() {
     await worker.fetch(req("POST", "/import", {
       headers: ADMIN,
       body: { users: [user(), user({ team: "Beta" }), user({ username: "altro_utente", full_name: "Altro Utente", email: "a.u@naba.it", team: "Alpha" })] },
-    }), env, ctx);
+    }), env);
 
-    let r = await worker.fetch(req("DELETE", "/user?username=mario_rossi&team=Beta", { headers: ADMIN }), env, ctx);
+    let r = await worker.fetch(req("DELETE", "/user?username=mario_rossi&team=Beta", { headers: ADMIN }), env);
     let b = await r.json();
     check("delete di un singolo record", b.deleted === 1 && env.USERS.store.size === 2, JSON.stringify(b));
 
-    r = await worker.fetch(req("DELETE", "/user?username=mario_rossi", { headers: ADMIN }), env, ctx);
+    r = await worker.fetch(req("DELETE", "/user?username=mario_rossi", { headers: ADMIN }), env);
     b = await r.json();
     check("delete di tutti i record dell'utente", b.deleted === 1 && env.USERS.store.size === 1, JSON.stringify(b));
 
-    r = await worker.fetch(req("DELETE", "/user?username=non_esiste", { headers: ADMIN }), env, ctx);
+    r = await worker.fetch(req("DELETE", "/user?username=non_esiste", { headers: ADMIN }), env);
     check("delete di utente inesistente → 404", r.status === 404);
 
-    r = await worker.fetch(req("DELETE", "/user", { headers: ADMIN }), env, ctx);
+    r = await worker.fetch(req("DELETE", "/user", { headers: ADMIN }), env);
     check("delete senza username → 400", r.status === 400);
 
-    r = await worker.fetch(req("DELETE", "/purge", { headers: ADMIN }), env, ctx);
+    r = await worker.fetch(req("DELETE", "/purge", { headers: ADMIN }), env);
     check("purge senza conferma → 400", r.status === 400);
     check("purge senza conferma non cancella", env.USERS.store.size === 1);
 
-    r = await worker.fetch(req("DELETE", "/purge?confirm=CONFIRM", { headers: ADMIN }), env, ctx);
+    r = await worker.fetch(req("DELETE", "/purge?confirm=CONFIRM", { headers: ADMIN }), env);
     b = await r.json();
     check("purge con conferma svuota", b.deleted === 1 && env.USERS.store.size === 0, JSON.stringify(b));
   }
@@ -351,9 +349,9 @@ async function main() {
         status: "inventato",
         timestamp: "non-una-data",
       }] },
-    }), env, ctx);
+    }), env);
 
-    const r = await worker.fetch(req("GET", "/export", { headers: ADMIN }), env, ctx);
+    const r = await worker.fetch(req("GET", "/export", { headers: ADMIN }), env);
     const b = await r.json();
     const u = b.users[0];
     check("spazi rimossi", u.username === "Mario_Rossi" && u.team === "Alpha", JSON.stringify(u));
@@ -367,7 +365,7 @@ async function main() {
     await worker.fetch(req("POST", "/import", {
       headers: ADMIN,
       body: { users: [{ username: "MARIO_ROSSI", full_name: "Mario Rossi", email: "m@naba.it", team: "ALPHA" }] },
-    }), env, ctx);
+    }), env);
     check("chiavi case-insensitive: nessun doppione", env.USERS.store.size === 1, `${env.USERS.store.size} chiavi`);
   }
 
@@ -378,13 +376,13 @@ async function main() {
     const molti = Array.from({ length: 250 }, (_, i) =>
       user({ username: `utente_${String(i).padStart(3, "0")}`, full_name: `Utente ${i}`, email: `u${i}@naba.it`, team: `Team${i % 7}` }));
     for (let i = 0; i < molti.length; i += 100) {
-      await worker.fetch(req("POST", "/import", { headers: ADMIN, body: { users: molti.slice(i, i + 100) } }), env, ctx);
+      await worker.fetch(req("POST", "/import", { headers: ADMIN, body: { users: molti.slice(i, i + 100) } }), env);
     }
-    let r = await worker.fetch(req("GET", "/export", { headers: ADMIN }), env, ctx);
+    let r = await worker.fetch(req("GET", "/export", { headers: ADMIN }), env);
     let b = await r.json();
     check("export di 250 record", b.count === 250, String(b.count));
 
-    r = await worker.fetch(req("DELETE", "/purge?confirm=CONFIRM", { headers: ADMIN }), env, ctx);
+    r = await worker.fetch(req("DELETE", "/purge?confirm=CONFIRM", { headers: ADMIN }), env);
     b = await r.json();
     check("purge di 250 record", b.deleted === 250 && env.USERS.store.size === 0, JSON.stringify(b));
   }
@@ -394,20 +392,20 @@ async function main() {
   {
     const env = makeEnv();
 
-    let r = await worker.fetch(req("POST", "/", { body: { users: [user({ username: "spazio_team", team: "Project Alpha" })] } }), env, ctx);
+    let r = await worker.fetch(req("POST", "/", { body: { users: [user({ username: "spazio_team", team: "Project Alpha" })] } }), env);
     check("team con spazio → 400", r.status === 400, `status ${r.status}`);
 
-    r = await worker.fetch(req("POST", "/", { body: { users: [user({ username: "trattino_team", team: "-alpha" })] } }), env, ctx);
+    r = await worker.fetch(req("POST", "/", { body: { users: [user({ username: "trattino_team", team: "-alpha" })] } }), env);
     check("team che inizia con trattino → 400", r.status === 400, `status ${r.status}`);
 
-    r = await worker.fetch(req("POST", "/", { body: { users: [user({ username: "punto_team", team: ".alpha" })] } }), env, ctx);
+    r = await worker.fetch(req("POST", "/", { body: { users: [user({ username: "punto_team", team: ".alpha" })] } }), env);
     check("team che inizia con punto → 400", r.status === 400, `status ${r.status}`);
 
-    r = await worker.fetch(req("POST", "/", { body: { users: [user({ username: "team_valido", team: "ProjectAlpha" })] } }), env, ctx);
+    r = await worker.fetch(req("POST", "/", { body: { users: [user({ username: "team_valido", team: "ProjectAlpha" })] } }), env);
     let b = await r.json();
     check("team senza spazi → accettato", r.status === 200 && b.success, JSON.stringify(b));
 
-    r = await worker.fetch(req("POST", "/", { body: { users: [user({ username: "-mario", team: "AltroTeam" })] } }), env, ctx);
+    r = await worker.fetch(req("POST", "/", { body: { users: [user({ username: "-mario", team: "AltroTeam" })] } }), env);
     check("username che inizia con trattino → 400", r.status === 400, `status ${r.status}`);
   }
 
@@ -418,22 +416,22 @@ async function main() {
   {
     const env = makeEnv();
 
-    let r = await worker.fetch(req("POST", "/", { body: { users: [user({ username: "_wang" })] } }), env, ctx);
+    let r = await worker.fetch(req("POST", "/", { body: { users: [user({ username: "_wang" })] } }), env);
     let b = await r.json();
     check("POST _wang → accettato", r.status === 200 && b.success && b.stored === 1, JSON.stringify(b));
 
-    r = await worker.fetch(req("PATCH", "/status", { headers: ADMIN, body: { updates: [{ username: "_wang", status: "created" }] } }), env, ctx);
+    r = await worker.fetch(req("PATCH", "/status", { headers: ADMIN, body: { updates: [{ username: "_wang", status: "created" }] } }), env);
     b = await r.json();
     check("PATCH _wang → aggiornato", b.updated === 1, JSON.stringify(b));
 
-    r = await worker.fetch(req("DELETE", "/user?username=_wang", { headers: ADMIN }), env, ctx);
+    r = await worker.fetch(req("DELETE", "/user?username=_wang", { headers: ADMIN }), env);
     b = await r.json();
     check("DELETE _wang → cancellato", r.status === 200 && b.deleted === 1, JSON.stringify(b));
 
     // Il punto iniziale no: nessun form lo ha mai generato, e "..." è il
     // jolly di p4.
     for (const username of [".mario", "..", "..."]) {
-      r = await worker.fetch(req("POST", "/", { body: { users: [user({ username })] } }), env, ctx);
+      r = await worker.fetch(req("POST", "/", { body: { users: [user({ username })] } }), env);
       check(`POST ${username} → 400`, r.status === 400, `status ${r.status}`);
     }
   }
@@ -445,15 +443,54 @@ async function main() {
   {
     const env = makeEnv();
     for (const team of ["2024", "a...", "a...b"]) {
-      const r = await worker.fetch(req("POST", "/", { body: { users: [user({ username: "mario_rossi", team })] } }), env, ctx);
+      const r = await worker.fetch(req("POST", "/", { body: { users: [user({ username: "mario_rossi", team })] } }), env);
       check(`team ${team} → 400`, r.status === 400, `status ${r.status}`);
     }
     for (const username of ["12345", "a...b"]) {
-      const r = await worker.fetch(req("POST", "/", { body: { users: [user({ username })] } }), env, ctx);
+      const r = await worker.fetch(req("POST", "/", { body: { users: [user({ username })] } }), env);
       check(`username ${username} → 400`, r.status === 400, `status ${r.status}`);
     }
-    const r = await worker.fetch(req("POST", "/", { body: { users: [user({ team: "Team2024.v2" })] } }), env, ctx);
+    const r = await worker.fetch(req("POST", "/", { body: { users: [user({ team: "Team2024.v2" })] } }), env);
     check("team con cifre e punti singoli → accettato", r.status === 200, `status ${r.status}`);
+  }
+
+  // ── 14. Lettura del batch sugli endpoint admin ──
+  console.log("\n14. Batch su /import e /status");
+  {
+    const env = makeEnv();
+    const utenti = (n) => Array.from({ length: n }, (_, i) => user({ username: `u_${i}` }));
+
+    let r = await worker.fetch(req("POST", "/import", { headers: ADMIN, body: { users: utenti(26) } }), env);
+    let b = await r.json();
+    check("import oltre il limite pubblico → accettato", r.status === 200 && b.written === 26, JSON.stringify(b).slice(0, 200));
+
+    r = await worker.fetch(req("POST", "/import", { headers: ADMIN, body: { users: utenti(501) } }), env);
+    check("import oltre il limite admin → 400", r.status === 400, `status ${r.status}`);
+
+    r = await worker.fetch(req("POST", "/import", { headers: ADMIN, body: { users: [] } }), env);
+    check("import vuoto → 400", r.status === 400, `status ${r.status}`);
+
+    r = await worker.fetch(new Request(BASE + "/import", { method: "POST", headers: ADMIN, body: "{non json" }), env);
+    check("import non JSON → 400", r.status === 400, `status ${r.status}`);
+
+    r = await worker.fetch(req("PATCH", "/status", { headers: ADMIN, body: [{ username: "u_0", status: "created" }] }), env);
+    b = await r.json();
+    check("status con array nudo → aggiornato", r.status === 200 && b.updated === 1, JSON.stringify(b));
+
+    const ventisei = Array.from({ length: 26 }, (_, i) => ({ username: `u_${i}`, status: "created" }));
+    r = await worker.fetch(req("PATCH", "/status", { headers: ADMIN, body: { updates: ventisei } }), env);
+    b = await r.json();
+    check("status oltre il limite pubblico → accettato", r.status === 200 && b.updated === 26, JSON.stringify(b).slice(0, 200));
+
+    const molti = Array.from({ length: 501 }, (_, i) => ({ username: `u_${i}`, status: "created" }));
+    r = await worker.fetch(req("PATCH", "/status", { headers: ADMIN, body: { updates: molti } }), env);
+    check("status oltre il limite admin → 400", r.status === 400, `status ${r.status}`);
+
+    r = await worker.fetch(req("PATCH", "/status", { headers: ADMIN, body: { updates: [] } }), env);
+    check("status vuoto → 400", r.status === 400, `status ${r.status}`);
+
+    r = await worker.fetch(new Request(BASE + "/status", { method: "PATCH", headers: ADMIN, body: "{non json" }), env);
+    check("status non JSON → 400", r.status === 400, `status ${r.status}`);
   }
 
   console.log(`\n${"=".repeat(52)}`);
