@@ -935,8 +935,7 @@ class TestProvisionMain(unittest.TestCase):
         self.add_user_to_group = mock.MagicMock(return_value=True)
         with contextlib.ExitStack() as stack:
             enter = stack.enter_context
-            enter(mock.patch.object(sys, "argv", ["perforce_provision.py", "--skip-discord",
-                                                  "--skip-email", *argv]))
+            enter(mock.patch.object(sys, "argv", ["perforce_provision.py", *argv]))
             enter(mock.patch("sys.stdout", new_callable=io.StringIO))
             enter(mock.patch.object(store, "worker_url", return_value="https://worker.test"))
             enter(mock.patch.object(store, "get_admin_token", return_value="tok"))
@@ -972,7 +971,7 @@ class TestProvisionMain(unittest.TestCase):
 
     def test_varianti_di_maiuscole_diventano_un_solo_team(self):
         # Anche nel primo giro, quando il gruppo non esiste ancora: un depot,
-        # una protezione, e lo stesso nome per Discord ed email.
+        # una protezione, e lo stesso nome nell'export.
         server = FakeServer()
         rows = [pending_row("mario_rossi", "ProjectAlpha"), pending_row("anna_bianchi", "projectalpha")]
         statuses = self.run_provision(server, rows)

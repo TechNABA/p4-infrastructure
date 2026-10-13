@@ -523,44 +523,33 @@
   // La regola dello username nel worker: si controlla prima dell'invio,
   // altrimenti di un gruppo verrebbe registrata solo una parte.
   const RE_USERNAME = /^(?!\d+$)(?!.*\.\.\.)[A-Za-z0-9_][A-Za-z0-9._-]{1,63}$/;
+  // L'email invece si controlla solo nella forma, più larga di quella del worker.
+  const RE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
   // ══════════════════════════════════════
   // Preview
   // ══════════════════════════════════════
+  function renderPreview(n, c, unameEl, fnameEl, unamePill, fnamePill) {
+    const uname = makeUsername(n, c);
+    const fname = [capitalize(n), capitalize(c)].filter(Boolean).join(' ');
+    unameEl.textContent = uname || '—';
+    fnameEl.textContent = fname || '—';
+    unamePill.classList.toggle('active', uname.length > 0);
+    fnamePill.classList.toggle('active', fname.length > 0);
+  }
+
   function updatePreview() {
-    const n = nomeEl.value.trim(), c = cognomeEl.value.trim();
-    if (n || c) {
-      const uname = makeUsername(n, c);
-      const fname = [capitalize(n), capitalize(c)].filter(Boolean).join(' ');
-      previewUsername.textContent = uname || '—';
-      previewFullname.textContent = fname || '—';
-      pillUsername.classList.toggle('active', uname.length > 0);
-      pillFullname.classList.toggle('active', fname.length > 0);
-    } else {
-      previewUsername.textContent = '—'; previewFullname.textContent = '—';
-      pillUsername.classList.remove('active'); pillFullname.classList.remove('active');
-    }
+    renderPreview(nomeEl.value.trim(), cognomeEl.value.trim(),
+      previewUsername, previewFullname, pillUsername, pillFullname);
   }
   nomeEl.addEventListener('input', updatePreview);
   cognomeEl.addEventListener('input', updatePreview);
 
   function updateMemberPreview(card) {
-    const n = card.querySelectorAll('input')[0].value.trim();
-    const c = card.querySelectorAll('input')[1].value.trim();
-    const pu = card.querySelector('.m-pill-username');
-    const pf = card.querySelector('.m-pill-fullname');
-    const pillU = card.querySelector('.m-preview-username');
-    const pillF = card.querySelector('.m-preview-fullname');
-    if (n || c) {
-      const uname = makeUsername(n, c);
-      const fname = [capitalize(n), capitalize(c)].filter(Boolean).join(' ');
-      pillU.textContent = uname || '—'; pillF.textContent = fname || '—';
-      pu.classList.toggle('active', uname.length > 0);
-      pf.classList.toggle('active', fname.length > 0);
-    } else {
-      pillU.textContent = '—'; pillF.textContent = '—';
-      pu.classList.remove('active'); pf.classList.remove('active');
-    }
+    const [n, c] = card.querySelectorAll('input');
+    renderPreview(n.value.trim(), c.value.trim(),
+      card.querySelector('.m-preview-username'), card.querySelector('.m-preview-fullname'),
+      card.querySelector('.m-pill-username'), card.querySelector('.m-pill-fullname'));
   }
 
   // ══════════════════════════════════════
@@ -680,7 +669,7 @@
     let valid = true;
     if (!nomeEl.value.trim()) { showError('nome-error', true); valid = false; } else showError('nome-error', false);
     if (!cognomeEl.value.trim()) { showError('cognome-error', true); valid = false; } else showError('cognome-error', false);
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailEl.value.trim())) { showError('email-error', true); valid = false; } else showError('email-error', false);
+    if (!RE_EMAIL.test(emailEl.value.trim())) { showError('email-error', true); valid = false; } else showError('email-error', false);
     if (!/^(?!\d+$)(?!.*\.\.\.)[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(teamEl.value.trim())) { showError('team-error', true); valid = false; } else showError('team-error', false);
     if (!tesistaEl.checked && !annoEl.value) { showError('anno-error', true); valid = false; } else showError('anno-error', false);
 
@@ -705,7 +694,7 @@
         const n = inputs[0], c = inputs[1], e = inputs[2];
         if (!n.value.trim()) { n.classList.add('error'); valid = false; } else n.classList.remove('error');
         if (!c.value.trim()) { c.classList.add('error'); valid = false; } else c.classList.remove('error');
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.value.trim())) { e.classList.add('error'); valid = false; } else e.classList.remove('error');
+        if (!RE_EMAIL.test(e.value.trim())) { e.classList.add('error'); valid = false; } else e.classList.remove('error');
         checkUsername(n, c);
       });
     }

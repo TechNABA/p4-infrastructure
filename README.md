@@ -2,15 +2,15 @@
 
 An automated onboarding pipeline for a Perforce Helix Core server used by art and design students working on collaborative projects.
 
-Students sign up through a bilingual web form. Everything that follows — version control account, team workspace, permissions, communication channel, welcome message — is created from that single submission.
+Students sign up through a bilingual web form. Everything that follows — version control account, team workspace, permissions — is created from that single submission.
 
 ---
 
 ## Why it exists
 
-Onboarding students onto a version control server is repetitive work that scales badly. Each new project team needs a set of accounts, a group, a storage area, a permission entry, a place to talk, and a set of credentials delivered to the right people. Done by hand for a few hundred students a year, it is slow, easy to get wrong, and hard to audit afterwards.
+Onboarding students onto a version control server is repetitive work that scales badly. Each new project team needs a set of accounts, a group, a storage area, and a permission entry. Done by hand for a few hundred students a year, it is slow, easy to get wrong, and hard to audit afterwards.
 
-The failure modes are the expensive part. A permission entry pointing at the wrong path exposes one team's work to another. An account created but never communicated means a student silently loses days. A student who leaves but keeps access is a problem nobody notices until it matters.
+The failure modes are the expensive part. A permission entry pointing at the wrong path exposes one team's work to another. A student who leaves but keeps access is a problem nobody notices until it matters.
 
 This system turns that work into a form submission and a single command, and keeps a consistent record of who was granted what.
 
@@ -20,8 +20,6 @@ This system turns that work into a form submission and a single command, and kee
 
 **Provisions accounts.** One command reads the pending registrations and creates the version control users, the group for each team, the team's storage area, and the permission entry that scopes each group to its own area and nothing else. Every step is idempotent: re-running it skips what already exists rather than duplicating or failing. A group or storage area that already exists without the team's permission entry is refused rather than taken over, and records left in error are retried with `--retry-errors`.
 
-**Sets up communication.** Each team gets a private chat channel visible only to its own members, an invite link, and a welcome message listing the team roster and connection details.
-
 **Tracks lifecycle.** Every record carries a status — pending, created, existing, duplicate, removed, error — so the state of any account is answerable without inspecting the server.
 
 **Cleans up.** Separate tools remove departed students along with their workspaces and permission entries, and identify orphaned accounts that no longer have access to anything.
@@ -30,12 +28,8 @@ This system turns that work into a form submission and a single command, and kee
 
 ```
 Registration form  →  Cloudflare Worker  →  Key-value store
-                              │
-                              └──────────→  Admin notification
 
 Admin command  →  reads pending records  →  version control server
-                                         →  chat channels and invites
-                                         →  welcome emails
                                          →  writes statuses back
 ```
 
@@ -43,11 +37,11 @@ The form is a static page. A Cloudflare Worker is the only backend: it validates
 
 ## Design decisions
 
-**No personal data in this repository.** Registration data lives in the key-value store, never in version control and never in build logs. This repository holds the form, the Worker, and the tooling — no student records, in the current tree or in its history. The admin scripts log usernames only; names are omitted and email addresses are masked.
+**No personal data in this repository.** Registration data lives in the key-value store, never in version control and never in build logs. This repository holds the form, the Worker, and the tooling — no student records, in the current tree or in its history. The admin scripts log usernames only; names and email addresses are omitted.
 
-**No credentials at rest.** Every secret — server password, bot token, email API key, admin token — is entered interactively at runtime or held as a platform secret. Nothing is written to disk, embedded in code, or committed.
+**No credentials at rest.** Every secret — server password, admin token — is entered interactively at runtime or held as a platform secret. Nothing is written to disk, embedded in code, or committed.
 
-**Least privilege by construction.** Each team's permission entry grants access to that team's storage area only. Chat channels deny visibility by default and grant it to a single role.
+**Least privilege by construction.** Each team's permission entry grants access to that team's storage area only.
 
 **Idempotent operations.** Provisioning can be interrupted and re-run safely. A dry-run mode previews every action before anything is modified.
 
@@ -66,7 +60,7 @@ The form is a static page. A Cloudflare Worker is the only backend: it validates
 
 ## Built with
 
-Static HTML, CSS and JavaScript on the front end. A Cloudflare Worker with KV storage as the backend. Python 3.10+ for the administrative tooling, using the standard library plus `openpyxl` for spreadsheet export. Perforce Helix Core as the version control server, with Discord and a transactional email service for communication.
+Static HTML, CSS and JavaScript on the front end. A Cloudflare Worker with KV storage as the backend. Python 3.10+ for the administrative tooling, using the standard library plus `openpyxl` for spreadsheet export. Perforce Helix Core as the version control server.
 
 The Worker ships with a test suite covering routing, authentication, validation, storage, and pagination. It runs against an in-memory store, so it needs no credentials and touches nothing live:
 

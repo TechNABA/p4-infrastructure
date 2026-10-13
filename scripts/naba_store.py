@@ -6,8 +6,8 @@ Client per il Worker Cloudflare che fa da storage dei dati utente.
 Sostituisce il vecchio CSV committato nella repo: nessun dato personale
 tocca più il filesystem del progetto.
 
-Usato da perforce_provision.py, export_p4_users.py, kv_status.py e
-discord_email_provision.py.
+Usato da perforce_provision.py, perforce_cleanup.py, export_p4_users.py,
+kv_status.py e xlsx_export.py (per FIELDS).
 
 Il token admin si prende, in ordine:
   1. variabile d'ambiente NABA_ADMIN_TOKEN
@@ -62,16 +62,6 @@ def get_admin_token(prompt: str = "Admin token del Worker: ") -> str:
         print("ERRORE: nessun token inserito.")
         sys.exit(1)
     return token
-
-
-# ── Log anonimizzati ───────────────────────────────────────────
-def mask_email(email: str) -> str:
-    """mario.rossi@studenti.naba.it → m***@studenti.naba.it"""
-    email = (email or "").strip()
-    if "@" not in email:
-        return "***"
-    local, _, domain = email.partition("@")
-    return f"{local[:1]}***@{domain}" if local else f"***@{domain}"
 
 
 # ── HTTP ───────────────────────────────────────────────────────
