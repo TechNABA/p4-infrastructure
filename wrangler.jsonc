@@ -2,6 +2,8 @@
 // Stessa configurazione che aveva in produzione il 13/10/2026, senza variabili.
 // ADMIN_TOKEN è un secret e non sta qui: npx wrangler@4.150.0 secret put ADMIN_TOKEN
 {
+  // Il nome del Worker resta perforce-registration anche dopo la rinomina del repo in p4-infrastructure:
+  // fa parte dell'URL workers.dev scritto negli script degli studenti, cambiarlo li romperebbe.
   "name": "perforce-registration",
   "main": "worker.js",
   "compatibility_date": "2026-04-13",
