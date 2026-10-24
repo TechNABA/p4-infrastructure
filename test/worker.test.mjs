@@ -127,6 +127,16 @@ async function main() {
     check("stesso username, team diverso → duplicate", b.results[0].status === "duplicate", JSON.stringify(b));
     check("crea comunque il record", env.USERS.store.size === 2);
 
+    // status e timestamp scelti da chi scrive
+    const env2 = makeEnv();
+    r = await worker.fetch(req("POST", "/", {
+      body: { users: [user({ username: "furbo", status: "removed", timestamp: "2020-01-01T00:00:00.000Z" })] },
+    }), env2);
+    b = await r.json();
+    const saved = JSON.parse([...env2.USERS.store.values()][0].value);
+    check("il form non sceglie lo status", b.results[0].status === "pending" && saved.status === "pending", JSON.stringify(saved));
+    check("il form non sceglie il timestamp", saved.timestamp !== "2020-01-01T00:00:00.000Z", saved.timestamp);
+
     // record non valido
     r = await worker.fetch(req("POST", "/", { body: { users: [user({ email: "non-una-email" })] } }), env);
     b = await r.json();
@@ -256,6 +266,17 @@ async function main() {
     const csv2 = await r.text();
     check("csv fa escaping di virgole e virgolette",
       csv2.includes('"Rossi, Mario ""il Grande"""'), csv2.split("\n").find((l) => l.includes("virgola")));
+
+    // formule
+    await worker.fetch(req("POST", "/import", {
+      headers: ADMIN,
+      body: { users: [user({ username: "formula_utente", full_name: '=HYPERLINK("http://x.invalid","a")', team: "Echo" })] },
+    }), env);
+    r = await worker.fetch(req("GET", "/export?format=csv", { headers: ADMIN }), env);
+    const csv3 = await r.text();
+    const formulaLine = csv3.split("\n").find((l) => l.includes("formula_utente"));
+    check("csv neutralizza i valori che iniziano con =",
+      formulaLine.includes(`"'=HYPERLINK(`), formulaLine);
   }
 
   // ── 7. Patch status ──

@@ -208,7 +208,10 @@ async function keysForUsername(env, username) {
 
 // ── CSV ───────────────────────────────────────────────────────
 function csvEscape(value) {
-  const s = String(value ?? "");
+  let s = String(value ?? "");
+  // Excel esegue come formula una cella che inizia con = + - @ (o tab/CR):
+  // i campi arrivano dal form pubblico.
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
@@ -277,6 +280,10 @@ async function handleRegister(request, env) {
       results.push({ username: clean(raw?.username, 64), ok: false, error });
       continue;
     }
+
+    // Il form è pubblico: stato e data li decide il Worker, non chi scrive.
+    record.status = "pending";
+    record.timestamp = new Date().toISOString();
 
     const key = kvKey(record.username, record.team);
     const existingSameTeam = await env.USERS.get(key);
