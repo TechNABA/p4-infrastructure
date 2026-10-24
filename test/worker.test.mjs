@@ -279,6 +279,30 @@ async function main() {
       formulaLine.includes(`"'=HYPERLINK(`), formulaLine);
   }
 
+  // ── Limite di frequenza ──
+  console.log("\nLimite di frequenza");
+  {
+    const calls = [];
+    const limiter = (ok) => ({ limit: async ({ key }) => { calls.push(key); return { success: ok }; } });
+    const envDeny = { ...makeEnv(), REGISTER_LIMITER: limiter(false), ADMIN_LIMITER: limiter(false) };
+    const ip = { "CF-Connecting-IP": "203.0.113.7" };
+
+    let r = await worker.fetch(req("POST", "/", { headers: ip, origin: "https://p4setup.naba.it", body: { users: [user()] } }), envDeny);
+    check("form oltre il limite → 429", r.status === 429);
+    check("429 del form porta le intestazioni CORS", r.headers.get("Access-Control-Allow-Origin") === "https://p4setup.naba.it");
+    check("niente scritto nel KV oltre il limite", envDeny.USERS.store.size === 0);
+    check("chiave del limite per IP", calls[0] === "register:203.0.113.7", calls[0]);
+
+    r = await worker.fetch(req("GET", "/export", { headers: { ...ip, ...ADMIN } }), envDeny);
+    check("admin oltre il limite → 429 anche col token giusto", r.status === 429);
+
+    const envOk = { ...makeEnv(), REGISTER_LIMITER: limiter(true), ADMIN_LIMITER: limiter(true) };
+    r = await worker.fetch(req("POST", "/", { headers: ip, body: { users: [user()] } }), envOk);
+    check("form sotto il limite → 200", r.status === 200);
+    r = await worker.fetch(req("GET", "/export", { headers: { ...ip, ...ADMIN } }), envOk);
+    check("admin sotto il limite → 200", r.status === 200);
+  }
+
   // ── 7. Patch status ──
   console.log("\n7. PATCH /status");
   {

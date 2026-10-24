@@ -12,7 +12,7 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
-    "redact_query_string": false,
+    "redact_query_string": true,
     "logs": {
       "enabled": true,
       "head_sampling_rate": 1,
@@ -27,5 +27,11 @@
   },
   "kv_namespaces": [
     { "binding": "USERS", "id": "b7b479d15db34190a487a9ae3ee1681e" }
+  ],
+  // Per IP e per sede Cloudflare. Il form ha un limite largo perché una classe
+  // dietro lo stesso NAT si registra insieme; l'admin lo usano pochi script.
+  "ratelimits": [
+    { "name": "REGISTER_LIMITER", "namespace_id": "1001", "simple": { "limit": 30, "period": 60 } },
+    { "name": "ADMIN_LIMITER", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } }
   ]
 }
