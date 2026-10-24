@@ -485,6 +485,17 @@ async function handlePurge(request, env) {
   return json({ success: true, deleted });
 }
 
+// ── Limite di frequenza ───────────────────────────────────────
+// I binding REGISTER_LIMITER e ADMIN_LIMITER stanno in wrangler.jsonc. Il
+// conteggio è per sede Cloudflare e approssimato: frena abusi e tentativi sul
+// token, non è un limite esatto. Senza binding (test) non si limita niente.
+async function limited(binding, scope, request) {
+  if (!binding) return false;
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const { success } = await binding.limit({ key: `${scope}:${ip}` });
+  return !success;
+}
+
 // ── Router ────────────────────────────────────────────────────
 export default {
   async fetch(request, env) {
@@ -520,6 +531,9 @@ export default {
         return json({ ok: true, service: "naba-perforce-registration" });
       }
       if (path === "/" && method === "POST") {
+        if (await limited(env.REGISTER_LIMITER, "register", request)) {
+          return json({ success: false, error: "troppe richieste, riprova tra un minuto" }, 429, corsHeaders(request));
+        }
         return await handleRegister(request, env);
       }
 
@@ -534,6 +548,9 @@ export default {
 
       const handler = adminRoutes[`${method} ${path}`];
       if (handler) {
+        if (await limited(env.ADMIN_LIMITER, "admin", request)) {
+          return json({ success: false, error: "troppe richieste" }, 429);
+        }
         if (!isAdmin(request, env)) {
           console.log(`auth: rifiutato ${method} ${path}`);
           return json({ success: false, error: "non autorizzato" }, 401);
