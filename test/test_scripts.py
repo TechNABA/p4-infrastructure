@@ -1015,7 +1015,8 @@ class TestProvisionMain(unittest.TestCase):
     def tearDown(self):
         perforce_provision.P4 = None
 
-    def run_provision(self, server, rows, argv=(), stored_names=None, create_fails=False):
+    def run_provision(self, server, rows, argv=(), stored_names=None, create_fails=False,
+                      answer="s"):
         store = perforce_provision.naba_store
         patch_status = mock.MagicMock(return_value={"updated": len(rows), "failed": []})
         # create_user restituisce il nome che l'account ha sul server.
@@ -1034,6 +1035,7 @@ class TestProvisionMain(unittest.TestCase):
             enter(mock.patch.object(p4c, "ask_p4_connection", return_value=server))
             enter(mock.patch.object(p4c, "connect", return_value=completed()))
             enter(mock.patch.object(perforce_provision, "ask_initial_password", return_value=None))
+            self.input = enter(mock.patch("builtins.input", return_value=answer))
             enter(mock.patch.object(perforce_provision, "create_user", self.create_user))
             enter(mock.patch.object(perforce_provision, "add_user_to_group", self.add_user_to_group))
             perforce_provision.main()
@@ -1080,6 +1082,35 @@ class TestProvisionMain(unittest.TestCase):
         self.assertEqual(statuses, ["created"])
         self.assertEqual(server.writes(), [])
         self.assertEqual(self.add_user_to_group.call_args.args[1], "ProjectAlpha")
+
+    def test_team_esistente_senza_conferma_lascia_il_record_pending(self):
+        # Il form è pubblico: chi scrive il nome di un team altrui non entra
+        # senza che l'admin lo confermi.
+        server = FakeServer(groups=["Alfa"], depots=["Alfa"],
+                            protections=PROTECT_SPEC + team_line("Alfa"))
+        statuses = self.run_provision(server, [pending_row("intruso", "Alfa")], answer="")
+        self.assertEqual(statuses, [])
+        self.input.assert_called_once()
+        self.create_user.assert_not_called()
+        self.add_user_to_group.assert_not_called()
+
+    def test_team_esistente_con_conferma_aggiunge_l_utente(self):
+        server = FakeServer(groups=["Alfa"], depots=["Alfa"],
+                            protections=PROTECT_SPEC + team_line("Alfa"))
+        statuses = self.run_provision(server, [pending_row("anna_bianchi", "Alfa")], answer="s")
+        self.assertEqual(statuses, ["created"])
+        self.add_user_to_group.assert_called_once()
+
+    def test_team_creato_in_questo_giro_non_chiede_conferma(self):
+        self.run_provision(FakeServer(), [pending_row("mario_rossi", "Alfa"),
+                                          pending_row("anna_bianchi", "Alfa")])
+        self.input.assert_not_called()
+
+    def test_dry_run_su_team_esistente_non_chiede_input(self):
+        server = FakeServer(groups=["Alfa"], depots=["Alfa"],
+                            protections=PROTECT_SPEC + team_line("Alfa"))
+        self.run_provision(server, [pending_row("anna_bianchi", "Alfa")], argv=["--dry-run"])
+        self.input.assert_not_called()
 
     def test_variante_di_maiuscole_non_entra_in_un_gruppo_admin(self):
         # Server case-sensitive: "Staff" è un gruppo admin, "staff" un team.
@@ -1150,6 +1181,28 @@ class TestAskInitialPassword(unittest.TestCase):
             with self.assertRaises(SystemExit) as ctx:
                 perforce_provision.ask_initial_password()
         self.assertEqual(ctx.exception.code, 1)
+
+
+# ── xlsx_export: valori del form pubblico che iniziano con "=" ──
+try:
+    import openpyxl
+except ImportError:
+    openpyxl = None
+
+
+@unittest.skipUnless(openpyxl, "serve openpyxl")
+class TestXlsxFormule(unittest.TestCase):
+    def test_nome_che_inizia_con_uguale_resta_testo(self):
+        import tempfile
+        import xlsx_export
+        row = {"username": "u", "full_name": "=1+1", "email": "a@b.it", "team": "T",
+               "status": "pending", "timestamp": "2026-01-01T00:00:00Z"}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "u.xlsx"
+            xlsx_export.write_xlsx([row], path)
+            cells = [c for r in openpyxl.load_workbook(path).active.iter_rows()
+                     for c in r if c.value == "=1+1"]
+        self.assertEqual([c.data_type for c in cells], ["s"])
 
 
 if __name__ == "__main__":

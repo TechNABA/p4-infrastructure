@@ -292,6 +292,19 @@ def setup_team(team: str, dry_run: bool = False) -> bool:
     return group_ok and depot_ok
 
 
+def confirm_join(username: str, team: str, dry_run: bool = False) -> bool:
+    """
+    Chiede conferma prima di aggiungere un utente a un team che esisteva già:
+    nessuno ha verificato che il richiedente ne faccia parte. In dry-run avvisa
+    soltanto, come ogni altra scrittura.
+    """
+    if dry_run:
+        print(f"    [dry-run] Team '{team}' già esistente: chiederebbe conferma per '{username}'")
+        return True
+    answer = input(f"    Il team '{team}' esiste già: aggiungere '{username}'? [s/N] ")
+    return answer.strip().lower() in ("s", "si", "sì", "y", "yes")
+
+
 def export_xlsx(rows: list[dict], path: Path) -> None:
     """Scrive l'XLSX in locale. Il file contiene dati personali."""
     try:
@@ -412,6 +425,7 @@ Esempi:
     # "staff" sono due team diversi e l'uno non deve decidere per l'altro.
     resolved = {}         # team come scritto nel record → nome usato su Perforce
     failed_teams = set()  # nomi (già risolti) dei team rifiutati o non configurati
+    existing_teams = {}   # nome risolto → il gruppo c'era già prima di questo giro
     status_updates = []
     success_count = 0
     error_count = 0
@@ -452,8 +466,10 @@ Esempi:
         # occuperebbe una licenza senza avere accesso a niente.
         if team not in resolved:
             name = canonical_team(team, resolved.values())
-            if name not in resolved.values() and not setup_team(name, args.dry_run):
-                failed_teams.add(name)
+            if name not in resolved.values():
+                existing_teams[name] = p4_group_exists(name) is True
+                if not setup_team(name, args.dry_run):
+                    failed_teams.add(name)
             resolved[team] = name
         team = resolved[team]
         user["team"] = team  # l'export XLSX usa lo stesso nome di Perforce
@@ -461,6 +477,11 @@ Esempi:
         if team in failed_teams:
             print(f"    [ERRORE] Team '{team}' non configurato: '{username}' non creato")
             all_ok = False
+        elif existing_teams.get(team) and not confirm_join(username, team, args.dry_run):
+            # Il form è pubblico: chiunque può scrivere il nome di un team
+            # altrui. Il record resta 'pending' finché non lo si conferma.
+            print(f"    [saltato] '{username}' non aggiunto al team '{team}': record lasciato pending")
+            continue
         else:
             # 2. Utente
             p4_name = create_user(username, full_name, email, initial_password, args.dry_run)

@@ -150,6 +150,9 @@ def write_xlsx(rows: list[dict], path: Path) -> None:
                 value = value.capitalize() if value else "Pending"
 
             cell = ws.cell(row=current_row, column=col_idx, value=value)
+            if cell.data_type == "f":
+                # Valore dal form pubblico che inizia con "=": testo, non formula.
+                cell.data_type = "s"
             cell.font = normal_font
             cell.fill = fill
             cell.alignment = normal_align
