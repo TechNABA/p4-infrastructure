@@ -66,6 +66,10 @@ def _famiglia(area, group, base, what, asks, note, presets):
     return [Preset(area, group, title, base + args, risk, what, asks, note) for title, args, risk in presets]
 
 
+def _p4(group, title, argv, risk, what, note=""):
+    return _famiglia("p4", group, argv, what, (), note, [(title, [], risk)])
+
+
 CATALOGO = [
     # ── Perforce: il server, gli utenti, i gruppi e i depot ──
     *_famiglia(
@@ -93,16 +97,6 @@ CATALOGO = [
          ("Rimuovi dai gruppi, tieni l'account", ["--keep-account"], "destroy"),
          ("Rimuovi e cancella il record", ["--delete-record"], "destroy")]),
     *_famiglia(
-        "Perforce", "Rimozione", ["p4", "depot", "-d", "{team}"],
-        "Cancella il depot del team, che il cleanup lascia di proposito.",
-        (), "Solo se il depot è vuoto e il team è chiuso davvero.",
-        [("Cancella il depot del team", [], "destroy")]),
-    *_famiglia(
-        "Perforce", "Rimozione", ["p4", "protect"],
-        "Apre la tabella dei permessi.", (),
-        "Cancella la riga write group NomeTeam * //NomeTeam/... e salva.",
-        [("Togli la riga di permesso", [], "write")]),
-    *_famiglia(
         "Perforce", "Rimozione", ["python", "scripts/perforce_prune.py"],
         "Rimuove gli account che non stanno in nessun gruppo con protezioni.",
         (*CONNESSIONE, ("CONFIRM", True)),
@@ -121,6 +115,64 @@ CATALOGO = [
     *_famiglia("Perforce", "Test", ["python", "-m", "unittest", "discover", "-s", "test"],
                "Test degli script.", (), "Non chiedono credenziali.",
                [("Test degli script", [], "read")]),
+
+    # ── p4: comandi diretti del client, per l'admin ──
+    *_p4("Server e account", "Accedi a Perforce", ["p4", "login"], "read",
+         "Apre la sessione con l'utente impostato su questa macchina (p4 set).",
+         "Gli altri comandi p4 la richiedono. La password si scrive nella finestra."),
+    *_p4("Server e account", "Info sul server", ["p4", "info"], "read",
+         "Versione del server, licenza, Case Handling e statistiche."),
+    *_p4("Server e account", "Licenze in uso", ["p4", "license", "-u"], "read",
+         "Quanti utenti usano la licenza, il limite e la scadenza.", "Serve un admin."),
+    *_p4("Server e account", "Utenti del server", ["p4", "users"], "read", "Tutti gli account."),
+    *_p4("Server e account", "Depot del server", ["p4", "depots"], "read", "Tutti i depot."),
+
+    *_p4("Un utente", "Gruppi di un utente", ["p4", "groups", "{user}"], "read",
+         "I gruppi di cui l'utente fa parte."),
+    *_p4("Un utente", "Permessi di un utente", ["p4", "protects", "-u", "{user}"], "read",
+         "Le righe della tabella protect che valgono per l'utente.", "Serve un super user."),
+    *_p4("Un utente", "Workspace di un utente", ["p4", "clients", "-u", "{user}"], "read",
+         "I workspace dell'utente: il nome serve ai comandi sui workspace."),
+    *_p4("Un utente", "Changelist pending di un utente", ["p4", "changes", "-s", "pending", "-u", "{user}"], "read",
+         "Le changelist pending dell'utente: il numero serve ai comandi sulle changelist."),
+    *_p4("Un utente", "File aperti da un utente", ["p4", "opened", "-a", "-u", "{user}"], "read",
+         "I file che l'utente tiene aperti, in qualsiasi workspace."),
+    *_p4("Un utente", "Reimposta la password di un utente", ["p4", "passwd", "{user}"], "write",
+         "Imposta una nuova password per l'utente.",
+         "Serve un super user. La nuova password si scrive nella finestra, non sulla riga di comando."),
+
+    *_p4("Changelist", "File aperti in una changelist", ["p4", "opened", "-a", "-c", "{change}"], "read",
+         "I file aperti nella changelist, con il workspace che li tiene."),
+    *_p4("Changelist", "Sblocca i file di una changelist", ["p4", "unlock", "-f", "-c", "{change}"], "write",
+         "Sblocca i file bloccati di una changelist, anche di un altro utente.", "Serve un admin."),
+    *_p4("Changelist", "Cancella gli shelve di una changelist", ["p4", "shelve", "-d", "-f", "-c", "{change}"],
+         "destroy", "Cancella i file in shelve di una changelist, anche di un altro utente.",
+         "Chi ha una risoluzione in sospeso su quello shelve non potrà più unirne il contenuto."),
+    *_p4("Changelist", "Cancella una changelist, anche di un altro utente", ["p4", "change", "-d", "-f", "{change}"],
+         "destroy", "Cancella la changelist pending.",
+         "Con file aperti o in shelve prima servono il revert del workspace e la cancellazione degli shelve: "
+         "lo script di rimozione li fa da solo."),
+
+    *_p4("Workspace", "Revert dei file aperti in un workspace", ["p4", "revert", "-C", "{client}", "//..."],
+         "destroy", "Annulla i file aperti in un workspace, anche di un altro utente.",
+         "Le modifiche non ancora inviate vanno perse. Serve un admin."),
+    *_p4("Workspace", "Cancella un workspace, anche di un altro utente", ["p4", "client", "-d", "-f", "{client}"],
+         "destroy", "Cancella il workspace anche se è bloccato; i file aperti vengono annullati.",
+         "Se dentro ci sono degli shelve p4 rifiuta: usa la variante con gli shelve."),
+    *_p4("Workspace", "Cancella un workspace e i suoi shelve", ["p4", "client", "-d", "-f", "-Fd", "{client}"],
+         "destroy", "Come sopra, e cancella anche gli shelve del workspace.", "Gli shelve cancellati non si recuperano."),
+
+    *_p4("Team chiuso", "Cancella il depot del team", ["p4", "depot", "-d", "{team}"], "destroy",
+         "Cancella il depot del team, che il cleanup lascia di proposito.",
+         "Solo se il depot è vuoto e il team è chiuso davvero."),
+    *_p4("Team chiuso", "Togli la riga di permesso", ["p4", "protect"], "write",
+         "Apre la tabella dei permessi.", "Cancella la riga write group NomeTeam * //NomeTeam/... e salva."),
+    *_p4("Team chiuso", "Anteprima: cosa cancellerebbe sul depot del team", ["p4", "obliterate", "//{team}/..."], "read",
+         "Mostra i file che verrebbero cancellati, senza toccare niente.", "Senza -y p4 fa solo l'anteprima."),
+    *_p4("Team chiuso", "Cancella per sempre i file del depot del team", ["p4", "obliterate", "-y", "//{team}/..."],
+         "destroy", "Cancella per sempre i file del depot e la loro storia.",
+         "Il server non conserva traccia che esistessero. Fai prima l'anteprima; poi il depot vuoto si cancella. "
+         "Serve un admin."),
 
     # ── Worker: il KV e Cloudflare ──
     *_famiglia(
@@ -158,15 +210,19 @@ def domande(preset):
 
 
 # ── Costruzione del comando ─────────────────────────────────────
-MANCA = {"user": "lo username", "team": "il team"}
-NOME = {"user": "username", "team": "team", "keep": "account"}
-SEGNAPOSTI = {"{user}", "{team}", "{keep}"}
+MANCA = {"user": "lo username", "team": "il team", "change": "il numero della changelist", "client": "il workspace"}
+NOME = {"user": "username", "team": "team", "keep": "account", "change": "changelist", "client": "workspace"}
+SEGNAPOSTO = re.compile(r"\{(user|team|keep|change|client)\}")
 PAROLA_SICURA = re.compile(r"^[A-Za-z0-9_./\\:-][A-Za-z0-9_./\\:@=+-]*$")
 
 
-def _valore(segnaposto, params, strict):
+def segnaposti(argv):
+    """Le chiavi dei segnaposto usate da un comando, anche dentro una parola come //{team}/..."""
+    return {m.group(1) for t in parole(argv) for m in SEGNAPOSTO.finditer(t)}
+
+
+def _valore(chiave, params, strict):
     """Valore validato di un segnaposto. keep è un elenco e può restare vuoto."""
-    chiave = segnaposto[1:-1]
     grezzo = (params.get(chiave) or "").strip()
     nomi = [n.strip() for n in grezzo.split(",") if n.strip()] if chiave == "keep" else [grezzo]
     if chiave == "keep" and not nomi:
@@ -174,6 +230,10 @@ def _valore(segnaposto, params, strict):
     try:
         if not grezzo:
             raise LauncherError(f"Compila {MANCA[chiave]}.")
+        if chiave == "change":
+            if not re.fullmatch(r"[0-9]+", grezzo):
+                raise LauncherError(f"La changelist è un numero: {grezzo!r} non va bene.")
+            return grezzo
         # Gli stessi controlli degli script: quello che passa qui, passa anche lì.
         return ",".join(p4c.check_p4_name(n, NOME[chiave]) for n in nomi)
     except (LauncherError, p4c.P4Error) as e:
@@ -188,7 +248,7 @@ def build_argv(argv, params, strict=True):
     out = []
     for voce in argv:
         gruppo = voce if isinstance(voce, tuple) else (voce,)
-        valori = [_valore(t, params, strict) if t in SEGNAPOSTI else t for t in gruppo]
+        valori = [SEGNAPOSTO.sub(lambda m: _valore(m.group(1), params, strict), t) for t in gruppo]
         if isinstance(voce, tuple) and "" in valori:
             continue
         out.extend(valori)
@@ -216,22 +276,48 @@ def launch(argv):
     )
 
 
+AREE = {
+    "Perforce": "Gli script di provisioning, rimozione e import.",
+    "p4": "Comandi diretti del client: usano server e utente di questa macchina (p4 set) e un login già fatto.",
+    "Worker": "Il KV e Cloudflare.",
+}
+
+# Valori che il dettaglio chiede solo ai comandi che li usano (username e team stanno in testata).
+# L'elenco di account prende il nome dall'opzione: --keep salva, --exclude non esporta.
+ELENCO = {"--keep": "Account da salvare", "--exclude": "Account da non esportare"}
+SUGGERIMENTI = {
+    "keep": "separati da virgola, ad esempio admin,servicebot",
+    "change": "solo cifre; lo trovi con «Changelist pending di un utente»",
+    "client": "il nome esatto; lo trovi con «Workspace di un utente»",
+}
+ETICHETTE = {"change": "Numero della changelist", "client": "Workspace"}
+
+
+def campo_extra(preset):
+    """Il campo che il dettaglio mostra per questo comando: (chiave, etichetta, suggerimento), o None."""
+    for voce in preset.argv:
+        if isinstance(voce, tuple) and "{keep}" in voce:
+            return "keep", ELENCO[voce[0]], SUGGERIMENTI["keep"]
+    for chiave in ("change", "client"):
+        if chiave in segnaposti(preset.argv):
+            return chiave, ETICHETTE[chiave], SUGGERIMENTI[chiave]
+    return None
+
+
 # ── Finestra ────────────────────────────────────────────────────
 BG, DEEP, SEL, LINE = "#000000", "#0d0d0d", "#262626", "#3a3a3a"
 INK, DIM, FAINT, ACCENT = "#f2f2f2", "#b0b0b0", "#808080", "#f5df74"
 FILTRI = (("all", "Tutti"), ("read", "Legge"), ("write", "Scrive"), ("destroy", "Cancella"))
 CAMPI = (("user", "Username"), ("team", "Team"))
-# L'elenco di account compare nel dettaglio solo per i comandi che lo usano, col nome dell'opzione.
-ELENCO = {"--keep": "Account da salvare", "--exclude": "Account da non esportare"}
 
 
 class App:
     def __init__(self, root):
         self.root = root
         self.px = lambda n: round(n * root.winfo_fpixels("1i") / 96)
-        self.vis, self.sel, self.filtro = [], 0, "all"
+        self.vis, self.sel, self.filtro, self.area_filtro = [], 0, "all", None
         self.ricerca = tk.StringVar()
-        self.campi = {k: tk.StringVar() for k in ("user", "team", "keep")}
+        self.campi = {k: tk.StringVar() for k in ("user", "team", "keep", "change", "client")}
         self._font()
         self._costruisci()
         self.ricerca.trace_add("write", self._ricerca_cambiata)
@@ -255,6 +341,13 @@ class App:
         return tk.Entry(genitore, textvariable=self.campi[chiave], width=larghezza, bg=fondo, fg=INK,
                         insertbackground=ACCENT, relief="flat", font=self.f["mono"], highlightthickness=1,
                         highlightbackground=LINE, highlightcolor=ACCENT)
+
+    def _chip(self, genitore, comando):
+        c = tk.Label(genitore, bg=BG, fg=DIM, font=self.f["ui"], padx=self.px(12), pady=self.px(3),
+                     cursor="hand2", highlightthickness=1, highlightbackground=LINE)
+        c.pack(side="left", padx=(0, self.px(8)))
+        c.bind("<Button-1>", lambda e: comando())
+        return c
 
     def _costruisci(self):
         px, f, root = self.px, self.f, self.root
@@ -288,13 +381,9 @@ class App:
 
         chips = tk.Frame(root, bg=BG)
         chips.grid(row=2, sticky="ew", padx=m, pady=(px(12), 0))
-        self.chip = {}
-        for chiave, nome in FILTRI:
-            c = tk.Label(chips, bg=BG, fg=DIM, font=f["ui"], padx=px(12), pady=px(3), cursor="hand2",
-                         highlightthickness=1, highlightbackground=LINE)
-            c.pack(side="left", padx=(0, px(8)))
-            c.bind("<Button-1>", lambda e, k=chiave: self._filtra(k))
-            self.chip[chiave] = (c, nome)
+        self.chip = {chiave: (self._chip(chips, lambda k=chiave: self._filtra(k)), nome) for chiave, nome in FILTRI}
+        tk.Frame(chips, bg=BG, width=px(14)).pack(side="left")
+        self.chip_area = {chiave: self._chip(chips, lambda k=chiave: self._filtra_area(k)) for chiave in AREE}
 
         corpo = tk.Frame(root, bg=BG)
         corpo.grid(row=3, sticky="nsew", padx=(m, px(8)), pady=(px(8), 0))
@@ -312,7 +401,9 @@ class App:
         barra_scorrimento.grid(row=0, column=1, sticky="ns")
         self.lista.config(yscrollcommand=barra_scorrimento.set)
         t = self.lista
-        t.tag_config("area", font=f["area"], foreground=INK, lmargin1=px(16), spacing1=px(26), spacing3=px(2))
+        t.tag_config("area", font=f["area"], foreground=INK, lmargin1=px(16), lmargin2=px(16), spacing1=px(26),
+                     spacing3=px(2))
+        t.tag_config("area_nota", font=f["ui"], foreground=FAINT)
         t.tag_config("gruppo", font=f["ui_b"], foreground=FAINT, lmargin1=px(16), spacing1=px(14), spacing3=px(2))
         t.tag_config("rischio", font=f["ui_b"], lmargin1=px(16), spacing1=px(9))
         for chiave, (_, colore) in RISCHIO.items():
@@ -335,13 +426,14 @@ class App:
             lbl.grid(row=riga, column=0, columnspan=2, sticky="w", padx=pad, pady=(px(4), 0))
             self.d_testi.append(lbl)
         d.bind("<Configure>", lambda e: [l.config(wraplength=e.width - 2 * pad) for l in self.d_testi])
-        self.d_elenco = tk.Frame(d, bg=DEEP)
-        self.d_elenco.grid(row=4, column=0, columnspan=2, sticky="w", padx=pad, pady=(px(12), 0))
-        self.d_elenco_nome = tk.Label(self.d_elenco, bg=DEEP, fg=INK, font=f["ui"])
-        self.d_elenco_nome.pack(side="left")
-        self._campo(self.d_elenco, "keep", 26, BG).pack(side="left", padx=px(10), ipady=px(3))
-        tk.Label(self.d_elenco, text="separati da virgola, ad esempio admin,servicebot", bg=DEEP, fg=FAINT,
-                 font=f["ui"]).pack(side="left")
+        self.d_extra = tk.Frame(d, bg=DEEP)
+        self.d_extra.grid(row=4, column=0, columnspan=2, sticky="w", padx=pad, pady=(px(12), 0))
+        self.d_extra_nome = tk.Label(self.d_extra, bg=DEEP, fg=INK, font=f["ui"])
+        self.d_extra_nome.pack(side="left")
+        self.d_extra_campo = self._campo(self.d_extra, "keep", 26, BG)
+        self.d_extra_campo.pack(side="left", padx=px(10), ipady=px(3))
+        self.d_extra_nota = tk.Label(self.d_extra, bg=DEEP, fg=FAINT, font=f["ui"])
+        self.d_extra_nota.pack(side="left")
         cmd = tk.Frame(d, bg=BG)
         cmd.grid(row=5, column=0, columnspan=2, sticky="ew", padx=pad, pady=px(14))
         cmd.columnconfigure(0, weight=1)
@@ -369,8 +461,12 @@ class App:
         self.filtro, self.sel = chiave, 0
         self.aggiorna()
 
+    def _filtra_area(self, chiave):
+        self.area_filtro, self.sel = (None if self.area_filtro == chiave else chiave), 0
+        self.aggiorna()
+
     def _azzera(self, _event=None):
-        self.filtro, self.sel = "all", 0
+        self.filtro, self.area_filtro, self.sel = "all", None, 0
         self.ricerca.set("")
         self.aggiorna()
 
@@ -382,6 +478,7 @@ class App:
         termini = self.ricerca.get().lower().split()
         self.vis = [p for p in CATALOGO
                     if (self.filtro == "all" or p.risk == self.filtro)
+                    and (self.area_filtro is None or p.area == self.area_filtro)
                     and all(w in f"{p.title} {p.area} {p.group} {self.testo(p, params)}".lower() for w in termini)]
         self.sel = min(self.sel, max(len(self.vis) - 1, 0))
         for chiave, (c, nome) in self.chip.items():
@@ -389,6 +486,10 @@ class App:
             attivo = chiave == self.filtro
             c.config(text=f"{nome} {n}", bg=INK if attivo else BG, fg=BG if attivo else DIM,
                      highlightbackground=INK if attivo else LINE)
+        for chiave, c in self.chip_area.items():
+            attivo = chiave == self.area_filtro
+            c.config(text=f"{chiave} {sum(1 for p in CATALOGO if p.area == chiave)}",
+                     bg=INK if attivo else BG, fg=BG if attivo else DIM, highlightbackground=INK if attivo else LINE)
         self.disegna(params)
         self.dettaglio()
 
@@ -401,7 +502,8 @@ class App:
         for i, p in enumerate(self.vis):
             if p.area != area:
                 area, gruppo = p.area, None
-                t.insert("end", p.area + "\n", "area")
+                t.insert("end", p.area, "area")
+                t.insert("end", "   " + AREE[p.area] + "\n", ("area", "area_nota"))
             if p.group != gruppo:
                 gruppo = p.group
                 t.insert("end", p.group + "\n", "gruppo")
@@ -458,7 +560,7 @@ class App:
             self.d_titolo.config(text="")
             self.d_rischio.config(text="")
             self.d_cmd.config(text="")
-            self.d_elenco.grid_remove()
+            self.d_extra.grid_remove()
             for lbl in self.d_testi:
                 lbl.grid_remove()
             return
@@ -469,12 +571,15 @@ class App:
         for lbl, testo in zip(self.d_testi, (p.what, "Ti chiederà, in ordine: " + " › ".join(chiede) if chiede else "", p.note)):
             lbl.config(text=testo)
             lbl.grid() if testo else lbl.grid_remove()
-        opzione = next((v[0] for v in p.argv if isinstance(v, tuple) and "{keep}" in v), None)
-        if opzione:
-            self.d_elenco_nome.config(text=ELENCO[opzione])
-            self.d_elenco.grid()
+        extra = campo_extra(p)
+        if extra:
+            chiave, nome, suggerimento = extra
+            self.d_extra_nome.config(text=nome)
+            self.d_extra_campo.config(textvariable=self.campi[chiave])
+            self.d_extra_nota.config(text=suggerimento)
+            self.d_extra.grid()
         else:
-            self.d_elenco.grid_remove()
+            self.d_extra.grid_remove()
         self.d_cmd.config(text="PS> " + self.testo(p, self.params()))
         self.b_esegui.config(text="Esegui" if p.risk == "read" else "Esegui…")
         self.stato("Doppio clic o Invio per eseguire. Password e token si scrivono nella finestra che si apre.")
@@ -498,7 +603,7 @@ class App:
         riga = ps_line(argv)
         if p.risk != "read":
             testo = f"{p.title}\n\n{AVVISO[p.risk]}"
-            if p.risk == "destroy" and "{keep}" in parole(p.argv) and not self.campi["keep"].get().strip():
+            if p.risk == "destroy" and "keep" in segnaposti(p.argv) and not self.campi["keep"].get().strip():
                 testo += "\nNessun account da salvare: oltre al tuo utente non è protetto nessuno."
             if not messagebox.askokcancel("Eseguire?", f"{testo}\n\n{riga}", icon="warning",
                                           default="cancel", parent=self.root):

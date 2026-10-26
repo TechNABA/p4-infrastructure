@@ -66,16 +66,29 @@ class CatalogTest(unittest.TestCase):
                     self.assertIn(voce[0], launcher.ELENCO, p.title)
 
     def test_each_command_sits_under_the_system_it_touches(self):
-        # Worker: il KV (kv_status.py) e Cloudflare (wrangler, npm test). Il resto parla con Perforce.
+        # Worker: il KV (kv_status.py) e Cloudflare (wrangler, npm test). p4: i comandi diretti del
+        # client. Perforce: gli script, che chiedono da soli server e password.
         for p in launcher.CATALOGO:
-            sul_worker = p.argv[0] in ("npm", "npx") or "scripts/kv_status.py" in p.argv
-            self.assertEqual(p.area, "Worker" if sul_worker else "Perforce", p.title)
+            if p.argv[0] in ("npm", "npx") or "scripts/kv_status.py" in p.argv:
+                atteso = "Worker"
+            elif p.argv[0] == "p4":
+                atteso = "p4"
+            else:
+                atteso = "Perforce"
+            self.assertEqual(p.area, atteso, p.title)
 
     def test_commands_of_one_section_are_listed_together(self):
         # La lista mette l'intestazione quando la sezione cambia: una sezione spezzata comparirebbe due volte.
         aree = [p.area for p in launcher.CATALOGO]
         self.assertEqual(aree, sorted(aree, key=lambda a: aree.index(a)))
-        self.assertEqual(len(set(aree)), 2)
+        self.assertEqual(set(aree), set(launcher.AREE))
+
+    def test_every_extra_value_a_command_needs_has_a_field(self):
+        # Username e team stanno in testata; ogni altro valore ha il suo campo nel dettaglio.
+        for p in launcher.CATALOGO:
+            extra = launcher.segnaposti(p.argv) - {"user", "team"}
+            self.assertLessEqual(len(extra), 1, p.title)
+            self.assertEqual(launcher.campo_extra(p) is not None, bool(extra), p.title)
 
     def test_titles_are_unique(self):
         titles = [p.title for p in launcher.CATALOGO]
@@ -125,10 +138,49 @@ class BuildTest(unittest.TestCase):
         with self.assertRaises(launcher.LauncherError):
             launcher.build_argv(p.argv, {"keep": "admin,bad name"})
 
+    def test_changelist_is_a_number_and_workspace_a_p4_name(self):
+        p = self.preset("Cancella una changelist, anche di un altro utente")
+        self.assertEqual(launcher.build_argv(p.argv, {"change": " 4821 "}),
+                         ["p4", "change", "-d", "-f", "4821"])
+        for bad in ("", "48a", "12; calc", "-1", "1 2"):
+            with self.assertRaises(launcher.LauncherError, msg=bad):
+                launcher.build_argv(p.argv, {"change": bad})
+        w = self.preset("Cancella un workspace, anche di un altro utente")
+        self.assertEqual(launcher.build_argv(w.argv, {"client": "mario_ws"}),
+                         ["p4", "client", "-d", "-f", "mario_ws"])
+        with self.assertRaises(launcher.LauncherError):
+            launcher.build_argv(w.argv, {"client": "a b"})
+
+    def test_a_placeholder_inside_a_word_is_replaced_and_checked(self):
+        p = self.preset("Anteprima: cosa cancellerebbe sul depot del team")
+        self.assertEqual(launcher.build_argv(p.argv, {"team": "ProjectAlpha"}),
+                         ["p4", "obliterate", "//ProjectAlpha/..."])
+        with self.assertRaises(launcher.LauncherError):
+            launcher.build_argv(p.argv, {"team": "x/../y"})
+
     def test_preview_shows_placeholders_instead_of_failing(self):
         argv = launcher.build_argv(self.preset("Anteprima della rimozione").argv, {}, strict=False)
         self.assertEqual(" ".join(argv),
                          "python scripts/perforce_cleanup.py --user <username> --dry-run")
+
+
+class ExtraFieldTest(unittest.TestCase):
+    def campo(self, title):
+        return launcher.campo_extra(next(p for p in launcher.CATALOGO if p.title == title))
+
+    def test_the_account_list_is_named_after_its_option(self):
+        self.assertEqual(self.campo("Rimuovi gli account orfani")[:2], ("keep", "Account da salvare"))
+        self.assertEqual(self.campo("Importa nel KV")[:2], ("keep", "Account da non esportare"))
+
+    def test_changelist_and_workspace_have_their_own_field(self):
+        self.assertEqual(self.campo("Cancella una changelist, anche di un altro utente")[:2],
+                         ("change", "Numero della changelist"))
+        self.assertEqual(self.campo("Cancella un workspace, anche di un altro utente")[:2],
+                         ("client", "Workspace"))
+
+    def test_no_field_when_the_command_needs_nothing_extra(self):
+        self.assertIsNone(self.campo("Provisioning"))
+        self.assertIsNone(self.campo("Gruppi di un utente"))
 
 
 class PowerShellLineTest(unittest.TestCase):
@@ -136,6 +188,9 @@ class PowerShellLineTest(unittest.TestCase):
         argv = ["python", "scripts/perforce_cleanup.py", "--user", "mario_rossi", "--dry-run"]
         self.assertEqual(launcher.ps_line(argv), " ".join(argv))
         self.assertEqual(launcher.ps_quote("wrangler@4.150.0"), "wrangler@4.150.0")
+
+    def test_depot_paths_are_not_quoted(self):
+        self.assertEqual(launcher.ps_quote("//ProjectAlpha/..."), "//ProjectAlpha/...")
 
     def test_lists_and_quotes_are_single_quoted(self):
         # In PowerShell a,b senza apici è un array, non una stringa.
