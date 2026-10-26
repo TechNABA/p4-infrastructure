@@ -38,6 +38,7 @@ class LauncherError(ValueError):
 
 # ── Catalogo ────────────────────────────────────────────────────
 class Preset(NamedTuple):
+    area: str    # Perforce o Worker: cosa tocca il comando
     group: str
     title: str
     argv: list   # parole del comando; una tupla è un gruppo opzionale, omesso se vuoto
@@ -61,13 +62,14 @@ TOKEN = ("token admin", False)
 CONNESSIONE = (("server", False), ("utente Perforce", False), ("password", False))
 
 
-def _famiglia(group, base, what, asks, note, presets):
-    return [Preset(group, title, base + args, risk, what, asks, note) for title, args, risk in presets]
+def _famiglia(area, group, base, what, asks, note, presets):
+    return [Preset(area, group, title, base + args, risk, what, asks, note) for title, args, risk in presets]
 
 
 CATALOGO = [
+    # ── Perforce: il server, gli utenti, i gruppi e i depot ──
     *_famiglia(
-        "Provisioning", ["python", "scripts/perforce_provision.py"],
+        "Perforce", "Provisioning", ["python", "scripts/perforce_provision.py"],
         "Crea utenti, gruppi, depot e permessi dai record pending del KV.",
         (TOKEN, *CONNESSIONE,
          ("password iniziale studenti (due volte, Invio per non impostarla)", False),
@@ -80,7 +82,7 @@ CATALOGO = [
          ("Riprova i record in error", ["--retry-errors"], "write")]),
 
     *_famiglia(
-        "Rimozione", ["python", "scripts/perforce_cleanup.py", "--user", "{user}"],
+        "Perforce", "Rimozione", ["python", "scripts/perforce_cleanup.py", "--user", "{user}"],
         "Toglie lo studente da Perforce e dal KV: gruppi, changelist pending, workspace e, se non gli resta accesso, l'account.",
         (TOKEN, *CONNESSIONE, ("CONFIRM", True)),
         "Irreversibile. Il depot del team e la sua riga in p4 protect restano: vanno tolti a mano. "
@@ -91,17 +93,17 @@ CATALOGO = [
          ("Rimuovi dai gruppi, tieni l'account", ["--keep-account"], "destroy"),
          ("Rimuovi e cancella il record", ["--delete-record"], "destroy")]),
     *_famiglia(
-        "Rimozione", ["p4", "depot", "-d", "{team}"],
+        "Perforce", "Rimozione", ["p4", "depot", "-d", "{team}"],
         "Cancella il depot del team, che il cleanup lascia di proposito.",
         (), "Solo se il depot è vuoto e il team è chiuso davvero.",
         [("Cancella il depot del team", [], "destroy")]),
     *_famiglia(
-        "Rimozione", ["p4", "protect"],
+        "Perforce", "Rimozione", ["p4", "protect"],
         "Apre la tabella dei permessi.", (),
         "Cancella la riga write group NomeTeam * //NomeTeam/... e salva.",
         [("Togli la riga di permesso", [], "write")]),
     *_famiglia(
-        "Rimozione", ["python", "scripts/perforce_prune.py"],
+        "Perforce", "Rimozione", ["python", "scripts/perforce_prune.py"],
         "Rimuove gli account che non stanno in nessun gruppo con protezioni.",
         (*CONNESSIONE, ("CONFIRM", True)),
         "Il tuo utente è sempre protetto. Service account e altri admin vanno indicati in «Account da salvare».",
@@ -109,7 +111,20 @@ CATALOGO = [
          ("Rimuovi gli account orfani", [("--keep", "{keep}")], "destroy")]),
 
     *_famiglia(
-        "Dati", ["python", "scripts/kv_status.py"],
+        "Perforce", "Import", ["python", "scripts/export_p4_users.py"],
+        "Porta gli account già presenti su Perforce nel KV come existing, così il provisioning non li ricrea.",
+        (*CONNESSIONE, ("token admin", True)),
+        "L'utente con cui ti connetti non finisce mai nell'export.",
+        [("Anteprima dell'import", ["--dry-run", ("--exclude", "{keep}")], "read"),
+         ("Importa nel KV", [("--exclude", "{keep}")], "write"),
+         ("Importa senza sovrascrivere", ["--skip-existing", ("--exclude", "{keep}")], "write")]),
+    *_famiglia("Perforce", "Test", ["python", "-m", "unittest", "discover", "-s", "test"],
+               "Test degli script.", (), "Non chiedono credenziali.",
+               [("Test degli script", [], "read")]),
+
+    # ── Worker: il KV e Cloudflare ──
+    *_famiglia(
+        "Worker", "Record nel KV", ["python", "scripts/kv_status.py"],
         "Conta i record del KV per status e per team.",
         (TOKEN,), "CSV e XLSX contengono dati personali: finiscono nella cartella della repo, già nel .gitignore.",
         [("Stato del KV", [], "read"),
@@ -118,29 +133,17 @@ CATALOGO = [
          ("Solo gli error", ["--status", "error"], "read"),
          ("Esporta in XLSX", ["--xlsx", "utenti.xlsx"], "read"),
          ("Esporta in CSV", ["--csv", "utenti.csv"], "read")]),
-    *_famiglia(
-        "Dati", ["python", "scripts/export_p4_users.py"],
-        "Porta gli account già presenti su Perforce nel KV come existing, così il provisioning non li ricrea.",
-        (*CONNESSIONE, ("token admin", True)),
-        "L'utente con cui ti connetti non finisce mai nell'export.",
-        [("Anteprima dell'import", ["--dry-run", ("--exclude", "{keep}")], "read"),
-         ("Importa nel KV", [("--exclude", "{keep}")], "write"),
-         ("Importa senza sovrascrivere", ["--skip-existing", ("--exclude", "{keep}")], "write")]),
-
-    *_famiglia("Worker e test", ["npm", "test"], "Test del Worker e del form.", (),
-               "Nessun test tocca Perforce o il KV.",
-               [("Test del Worker e del form", [], "read")]),
-    *_famiglia("Worker e test", ["python", "-m", "unittest", "discover", "-s", "test"],
-               "Test degli script.", (), "Non chiedono credenziali.",
-               [("Test degli script", [], "read")]),
-    *_famiglia("Worker e test", ["npx", "wrangler@4.150.0", "deploy"],
+    *_famiglia("Worker", "Pubblicazione", ["npx", "wrangler@4.150.0", "deploy"],
                "Pubblica worker.js in produzione, con wrangler.jsonc.", (),
                "Il Worker si chiama ancora perforce-registration: il nome sta nell'URL scritto negli script degli studenti.",
                [("Pubblica il Worker", [], "write")]),
-    *_famiglia("Worker e test", ["npx", "wrangler@4.150.0", "secret", "put", "ADMIN_TOKEN"],
+    *_famiglia("Worker", "Pubblicazione", ["npx", "wrangler@4.150.0", "secret", "put", "ADMIN_TOKEN"],
                "Chiede il nuovo token admin e lo salva come Secret del Worker.", (),
                "Cloudflare non lo rimostra dopo il salvataggio: aggiorna anche il Vaultwarden.",
                [("Cambia il token admin del Worker", [], "write")]),
+    *_famiglia("Worker", "Test", ["npm", "test"], "Test del Worker e del form.", (),
+               "Nessun test tocca Perforce o il KV.",
+               [("Test del Worker e del form", [], "read")]),
 ]
 
 
@@ -246,7 +249,7 @@ class App:
         ui = next(f for f in ("Segoe UI Variable Text", "Segoe UI", "Arial") if f in presenti)
         mono = next(f for f in ("Cascadia Mono", "Consolas", "Courier New") if f in presenti)
         self.f = {"ui": (ui, 10), "ui_b": (ui, 10, "bold"), "titolo": (ui, 11, "bold"),
-                  "piccolo": (ui, 9), "mono": (mono, 10), "mono_g": (mono, 13)}
+                  "area": (ui, 14, "bold"), "piccolo": (ui, 9), "mono": (mono, 10), "mono_g": (mono, 13)}
 
     def _campo(self, genitore, chiave, larghezza, fondo):
         return tk.Entry(genitore, textvariable=self.campi[chiave], width=larghezza, bg=fondo, fg=INK,
@@ -309,6 +312,7 @@ class App:
         barra_scorrimento.grid(row=0, column=1, sticky="ns")
         self.lista.config(yscrollcommand=barra_scorrimento.set)
         t = self.lista
+        t.tag_config("area", font=f["area"], foreground=INK, lmargin1=px(16), spacing1=px(26), spacing3=px(2))
         t.tag_config("gruppo", font=f["ui_b"], foreground=FAINT, lmargin1=px(16), spacing1=px(14), spacing3=px(2))
         t.tag_config("rischio", font=f["ui_b"], lmargin1=px(16), spacing1=px(9))
         for chiave, (_, colore) in RISCHIO.items():
@@ -378,7 +382,7 @@ class App:
         termini = self.ricerca.get().lower().split()
         self.vis = [p for p in CATALOGO
                     if (self.filtro == "all" or p.risk == self.filtro)
-                    and all(w in f"{p.title} {p.group} {self.testo(p, params)}".lower() for w in termini)]
+                    and all(w in f"{p.title} {p.area} {p.group} {self.testo(p, params)}".lower() for w in termini)]
         self.sel = min(self.sel, max(len(self.vis) - 1, 0))
         for chiave, (c, nome) in self.chip.items():
             n = sum(1 for p in CATALOGO if chiave == "all" or p.risk == chiave)
@@ -393,10 +397,13 @@ class App:
         y = t.yview()[0]
         t.config(state="normal")
         t.delete("1.0", "end")
-        ultimo = None
+        area = gruppo = None
         for i, p in enumerate(self.vis):
-            if p.group != ultimo:
-                ultimo = p.group
+            if p.area != area:
+                area, gruppo = p.area, None
+                t.insert("end", p.area + "\n", "area")
+            if p.group != gruppo:
+                gruppo = p.group
                 t.insert("end", p.group + "\n", "gruppo")
             riga = f"r{i}"
             t.insert("end", RISCHIO[p.risk][0], (riga, "rischio", "c_" + p.risk))

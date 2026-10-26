@@ -65,6 +65,18 @@ class CatalogTest(unittest.TestCase):
                 if isinstance(voce, tuple) and "{keep}" in voce:
                     self.assertIn(voce[0], launcher.ELENCO, p.title)
 
+    def test_each_command_sits_under_the_system_it_touches(self):
+        # Worker: il KV (kv_status.py) e Cloudflare (wrangler, npm test). Il resto parla con Perforce.
+        for p in launcher.CATALOGO:
+            sul_worker = p.argv[0] in ("npm", "npx") or "scripts/kv_status.py" in p.argv
+            self.assertEqual(p.area, "Worker" if sul_worker else "Perforce", p.title)
+
+    def test_commands_of_one_section_are_listed_together(self):
+        # La lista mette l'intestazione quando la sezione cambia: una sezione spezzata comparirebbe due volte.
+        aree = [p.area for p in launcher.CATALOGO]
+        self.assertEqual(aree, sorted(aree, key=lambda a: aree.index(a)))
+        self.assertEqual(len(set(aree)), 2)
+
     def test_titles_are_unique(self):
         titles = [p.title for p in launcher.CATALOGO]
         self.assertEqual(len(titles), len(set(titles)))
