@@ -21,6 +21,10 @@ workspace, account da salvare) un piccolo dialogo lo chiede al doppio clic.
 
     doppio clic sul file, oppure:  pythonw scripts/launcher.pyw
 
+Come eseguibile (vedi il README) gira anche senza Python: gli script stanno in
+p4-runner.exe, accanto a "P4 Infrastructure.exe", e restano fuori solo i comandi
+che chiedono la repo e Node (test e pubblicazione del Worker).
+
 Il catalogo qui sotto è scritto a mano accanto agli script: se ne cambi le
 opzioni, test/test_launcher.py ti dice quale riga è rimasta indietro.
 """
@@ -29,6 +33,7 @@ import ctypes
 import os
 import re
 import subprocess
+import sys
 import tkinter as tk
 import tkinter.font as tkfont
 from pathlib import Path
@@ -39,6 +44,12 @@ import naba_store
 import p4_common as p4c
 
 REPO = Path(__file__).resolve().parent.parent
+IN_ESEGUIBILE = getattr(sys, "frozen", False)  # PyInstaller
+# Dove girano i comandi: la repo, o la cartella dell'eseguibile (dove sta anche il runner).
+CARTELLA = Path(sys.executable).parent if IN_ESEGUIBILE else REPO
+RUNNER = "p4-runner.exe"
+# L'icona viaggia dentro l'eseguibile (--add-data), estratta in _MEIPASS.
+ICONA = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) / "icona.ico"
 CREATE_NEW_CONSOLE = getattr(subprocess, "CREATE_NEW_CONSOLE", 0x10)
 
 
@@ -210,6 +221,18 @@ def parole(argv):
     return [t for voce in argv for t in (voce if isinstance(voce, tuple) else (voce,))]
 
 
+def solo_sorgente(preset):
+    """Test e pubblicazione del Worker chiedono la repo e Node: nell'eseguibile non ci sono."""
+    return preset.argv[0] in ("npm", "npx") or "unittest" in preset.argv
+
+
+def comandi(in_eseguibile):
+    return [p for p in CATALOGO if not (in_eseguibile and solo_sorgente(p))]
+
+
+COMANDI = comandi(IN_ESEGUIBILE)
+
+
 # ── Costruzione del comando ─────────────────────────────────────
 MANCA = {"user": "lo username", "team": "il team", "change": "il numero della changelist", "client": "il workspace"}
 NOME = {"user": "username", "team": "team", "keep": "account", "change": "changelist", "client": "workspace"}
@@ -285,6 +308,29 @@ def verifica_token(token):
         raise LauncherError(str(e)) from e
 
 
+def _e_uno_script(argv):
+    return argv[:1] == ["python"] and len(argv) > 1 and argv[1].startswith("scripts/")
+
+
+def visibile(argv):
+    """Come il comando si legge nell'elenco e nelle conferme: nell'eseguibile «python scripts/X.py»
+    è «p4-runner X», perché è quello che parte."""
+    if IN_ESEGUIBILE and _e_uno_script(argv):
+        return [Path(RUNNER).stem, Path(argv[1]).stem, *argv[2:]]
+    return argv
+
+
+def per_eseguibile(argv):
+    """Nell'eseguibile non c'è Python né la cartella scripts: «python scripts/X.py» diventa il runner
+    accanto a noi. Da sorgente, e per gli altri comandi, resta com'è."""
+    if not IN_ESEGUIBILE or not _e_uno_script(argv):
+        return argv
+    runner = CARTELLA / RUNNER
+    if not runner.is_file():
+        raise LauncherError(f"Manca {RUNNER} accanto all'eseguibile ({CARTELLA}).")
+    return [str(runner), Path(argv[1]).stem, *argv[2:]]
+
+
 def launch(argv, token=None):
     """Apre una finestra di PowerShell nella repo, ci esegue il comando e la lascia aperta.
 
@@ -294,9 +340,13 @@ def launch(argv, token=None):
     env = dict(os.environ, PYTHONUTF8="1")
     if token:
         env["NABA_ADMIN_TOKEN"] = token
+    argv = per_eseguibile(argv)
+    riga = ps_line(argv)
+    if not PAROLA_SICURA.match(argv[0]):
+        riga = "& " + riga  # un percorso con spazi è quotato: senza & PowerShell lo leggerebbe come testo
     return subprocess.Popen(
-        ["powershell.exe", "-NoLogo", "-NoExit", "-Command", ps_line(argv)],
-        cwd=REPO, env=env, creationflags=CREATE_NEW_CONSOLE,
+        ["powershell.exe", "-NoLogo", "-NoExit", "-Command", riga],
+        cwd=CARTELLA, env=env, creationflags=CREATE_NEW_CONSOLE,
     )
 
 
@@ -348,6 +398,18 @@ FILTRI = (("all", "Tutti"), ("read", "Legge"), ("write", "Scrive"), ("destroy", 
 CAMPI = (("user", "Username"), ("team", "Team"))
 
 
+def barra_nera(finestra):
+    """Barra del titolo nera, come il resto: tema scuro (Windows 10 1809+) e, da Windows 11, anche colore
+    della barra, del testo e del bordo. Dove non è supportato la barra resta quella di sistema."""
+    try:
+        finestra.update_idletasks()
+        hwnd = ctypes.windll.user32.GetParent(finestra.winfo_id())
+        for attributo, colorref in ((20, 1), (35, 0x000000), (36, 0x00F2F2F2), (34, 0x003A3A3A)):
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attributo, ctypes.byref(ctypes.c_int(colorref)), 4)
+    except (AttributeError, OSError):
+        pass
+
+
 class Chiedi(tk.Toplevel):
     """Dialogo per un valore: etichetta, suggerimento e campo già compilato con l'ultimo valore."""
 
@@ -379,6 +441,7 @@ class Chiedi(tk.Toplevel):
         self.bind("<Escape>", lambda e: self.destroy())
         campo.focus_set()
         campo.select_range(0, "end")
+        barra_nera(self)
         self.update_idletasks()
         x = app.root.winfo_rootx() + (app.root.winfo_width() - self.winfo_width()) // 2
         self.geometry(f"+{max(x, 0)}+{app.root.winfo_rooty() + px(140)}")
@@ -408,6 +471,7 @@ class App:
         self.aggiorna()
         self.stato_accesso()
         self.cerca.focus_set()
+        root.after(50, lambda: barra_nera(root))
 
     def params(self):
         return {k: v.get() for k, v in self.campi.items()}
@@ -436,6 +500,10 @@ class App:
     def _costruisci(self):
         px, f, root = self.px, self.f, self.root
         root.title("p4-infrastructure")
+        try:
+            root.iconbitmap(default=str(ICONA))  # vale anche per i dialoghi
+        except tk.TclError:
+            pass
         root.configure(bg=BG)
         root.geometry(f"{px(1080)}x{px(820)}")
         root.minsize(px(820), px(520))
@@ -521,25 +589,25 @@ class App:
         self.aggiorna()
 
     def testo(self, preset, params):
-        return " ".join(build_argv(preset.argv, params, strict=False))
+        return " ".join(visibile(build_argv(preset.argv, params, strict=False)))
 
     def aggiorna(self):
         params = self.params()
         termini = self.ricerca.get().lower().split()
-        self.vis = [p for p in CATALOGO
+        self.vis = [p for p in COMANDI
                     if (self.filtro == "all" or p.risk == self.filtro)
                     and (self.area_filtro is None or p.area == self.area_filtro)
                     and all(w in f"{p.title} {p.desc} {p.area} {p.group} {self.testo(p, params)}".lower()
                             for w in termini)]
         self.sel = min(self.sel, max(len(self.vis) - 1, 0))
         for chiave, (c, nome) in self.chip.items():
-            n = sum(1 for p in CATALOGO if chiave == "all" or p.risk == chiave)
+            n = sum(1 for p in COMANDI if chiave == "all" or p.risk == chiave)
             attivo = chiave == self.filtro
             c.config(text=f"{nome} {n}", bg=INK if attivo else BG, fg=BG if attivo else DIM,
                      highlightbackground=INK if attivo else LINE)
         for chiave, c in self.chip_area.items():
             attivo = chiave == self.area_filtro
-            c.config(text=f"{chiave} {sum(1 for p in CATALOGO if p.area == chiave)}",
+            c.config(text=f"{chiave} {sum(1 for p in COMANDI if p.area == chiave)}",
                      bg=INK if attivo else BG, fg=BG if attivo else DIM, highlightbackground=INK if attivo else LINE)
         self.disegna(params)
 
@@ -651,7 +719,7 @@ class App:
         except LauncherError as e:
             messagebox.showwarning("Valore non valido", str(e), parent=self.root)
             return "break"
-        riga = ps_line(argv)
+        riga = ps_line(visibile(argv))
         if p.risk != "read":
             testo = f"{p.title}\n\n{AVVISO[p.risk]}"
             if p.note:
@@ -663,7 +731,7 @@ class App:
                 return "break"
         try:
             launch(argv, self.token if usa_token(p) else None)
-        except OSError as e:
+        except (OSError, LauncherError) as e:
             messagebox.showerror("Il comando non parte", str(e), parent=self.root)
         return "break"
 
@@ -674,6 +742,10 @@ class App:
 def main():
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(1)  # senza, su schermi ingranditi il testo è sfocato
+    except (AttributeError, OSError):
+        pass
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TechNABA.P4Infrastructure")  # icona nella barra
     except (AttributeError, OSError):
         pass
     root = tk.Tk()

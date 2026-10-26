@@ -13,12 +13,17 @@ già successo con --skip-discord): per questo ogni opzione che usa deve esistere
 nel parser dello script a cui punta.
 """
 
+import contextlib
 import importlib.machinery
 import importlib.util
+import io
 import os
 import re
+import struct
 import subprocess
 import sys
+import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -37,6 +42,8 @@ def load_launcher():
 
 
 launcher = load_launcher()
+
+import runner
 
 
 class CatalogTest(unittest.TestCase):
@@ -258,6 +265,106 @@ class TokenTest(unittest.TestCase):
         with mock.patch.object(launcher.naba_store, "fetch_users", side_effect=errore):
             with self.assertRaisesRegex(launcher.LauncherError, "rifiutato"):
                 launcher.verifica_token("sbagliato")
+
+
+class RunnerTest(unittest.TestCase):
+    """runner.py è ciò che gira nell'eseguibile al posto di «python scripts/<nome>.py»."""
+
+    def test_runs_the_script_with_its_own_arguments(self):
+        visti = []
+        finto = types.SimpleNamespace(main=lambda: visti.append(list(sys.argv)))
+        with mock.patch.object(runner, "carica", return_value=finto):
+            self.assertEqual(runner.main(["kv_status", "--usernames"]), 0)
+        self.assertEqual(visti, [["kv_status.py", "--usernames"]])
+
+    def test_an_unknown_name_is_refused_and_the_choices_are_listed(self):
+        fuori = io.StringIO()
+        with contextlib.redirect_stdout(fuori):
+            self.assertEqual(runner.main(["calc"]), 2)
+            self.assertEqual(runner.main([]), 2)
+        for nome in runner.SCRIPT:
+            self.assertIn(nome, fuori.getvalue())
+
+    def test_a_real_script_answers_to_help(self):
+        fuori = io.StringIO()
+        with contextlib.redirect_stdout(fuori), self.assertRaises(SystemExit) as uscita:
+            runner.main(["kv_status", "--help"])
+        self.assertEqual(uscita.exception.code, 0)
+        self.assertIn("--usernames", fuori.getvalue())
+
+    def test_it_runs_every_script_the_catalog_uses_and_nothing_missing(self):
+        usati = {Path(t).stem for p in launcher.CATALOGO for t in launcher.parole(p.argv) if t.startswith("scripts/")}
+        self.assertEqual(usati, set(runner.SCRIPT))
+        for nome in runner.SCRIPT:
+            self.assertTrue((SCRIPTS / f"{nome}.py").is_file(), nome)
+
+
+class ExecutableTest(unittest.TestCase):
+    def setUp(self):
+        self.cartella = tempfile.TemporaryDirectory(prefix="p4 tool ")  # lo spazio è voluto: un percorso vero ne ha
+        self.addCleanup(self.cartella.cleanup)
+        (Path(self.cartella.name) / launcher.RUNNER).write_bytes(b"")
+        patcher = mock.patch.multiple(launcher, IN_ESEGUIBILE=True, CARTELLA=Path(self.cartella.name))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_python_scripts_become_the_runner_next_to_the_executable(self):
+        runner_exe = str(Path(self.cartella.name) / launcher.RUNNER)
+        self.assertEqual(launcher.per_eseguibile(["python", "scripts/kv_status.py", "--usernames"]),
+                         [runner_exe, "kv_status", "--usernames"])
+
+    def test_the_list_shows_what_actually_runs(self):
+        self.assertEqual(launcher.visibile(["python", "scripts/kv_status.py", "--usernames"]),
+                         ["p4-runner", "kv_status", "--usernames"])
+        self.assertEqual(launcher.visibile(["p4", "info"]), ["p4", "info"])
+
+    def test_other_commands_are_left_alone(self):
+        for argv in (["p4", "info"], ["npm", "test"], ["python", "-m", "unittest", "discover", "-s", "test"]):
+            self.assertEqual(launcher.per_eseguibile(argv), argv)
+
+    def test_a_missing_runner_is_reported(self):
+        (Path(self.cartella.name) / launcher.RUNNER).unlink()
+        with self.assertRaisesRegex(launcher.LauncherError, "p4-runner.exe"):
+            launcher.per_eseguibile(["python", "scripts/kv_status.py"])
+
+    def test_a_path_with_spaces_is_called_not_read_as_text(self):
+        with mock.patch.object(launcher.subprocess, "Popen") as popen:
+            launcher.launch(["python", "scripts/kv_status.py", "--usernames"])
+        args, kwargs = popen.call_args
+        riga = args[0][-1]
+        self.assertTrue(riga.startswith("& '"), riga)
+        self.assertTrue(riga.endswith("p4-runner.exe' kv_status --usernames"), riga)
+        self.assertEqual(Path(kwargs["cwd"]), Path(self.cartella.name))
+
+    def test_commands_that_need_the_repo_and_node_are_left_out(self):
+        titoli = {p.title for p in launcher.comandi(True)}
+        for fuori in ("Test del Worker e del form", "Test degli script", "Pubblica il Worker",
+                      "Cambia il token admin del Worker"):
+            self.assertNotIn(fuori, titoli)
+        self.assertIn("Stato del KV", titoli)
+        self.assertIn("Info sul server", titoli)
+        self.assertEqual(len(launcher.comandi(False)), len(launcher.CATALOGO))
+
+    def test_every_area_keeps_something_to_show(self):
+        self.assertEqual({p.area for p in launcher.comandi(True)}, set(launcher.AREE))
+
+
+class SourceModeTest(unittest.TestCase):
+    def test_from_source_nothing_changes(self):
+        self.assertFalse(launcher.IN_ESEGUIBILE)
+        argv = ["python", "scripts/kv_status.py", "--usernames"]
+        self.assertEqual(launcher.per_eseguibile(argv), argv)
+        self.assertEqual(launcher.visibile(argv), argv)
+
+
+class IconTest(unittest.TestCase):
+    def test_the_icon_has_every_size_windows_asks_for(self):
+        dati = (SCRIPTS / "icona.ico").read_bytes()
+        _, tipo, quante = struct.unpack("<HHH", dati[:6])
+        larghezze = {(dati[6 + 16 * i] or 256) for i in range(quante)}
+        self.assertEqual(tipo, 1)
+        self.assertTrue({16, 32, 48, 256} <= larghezze, larghezze)
+        self.assertTrue(launcher.ICONA.is_file())
 
 
 class LaunchTest(unittest.TestCase):

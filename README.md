@@ -75,6 +75,19 @@ npx wrangler@4.150.0 deploy
 npx wrangler@4.150.0 secret put ADMIN_TOKEN
 ```
 
+## Admin launcher
+
+`scripts/launcher.pyw` is a small Windows app that lists every admin command, grouped by what it touches (the Perforce scripts, direct `p4` commands, the Worker). Double-click a row and the command opens in a PowerShell window. The Worker admin token is entered once and kept in memory only; it reaches only the four scripts that ask for it.
+
+It also builds into standalone executables, so the machine needs no Python:
+
+```
+python -m PyInstaller --noconfirm --clean --onefile --windowed --icon scripts/icona.ico --add-data "scripts/icona.ico;." --name "P4 Infrastructure" --distpath dist scripts/launcher.pyw
+python -m PyInstaller --noconfirm --onefile --console --icon scripts/icona.ico --name p4-runner --distpath dist scripts/runner.py
+```
+
+Keep the two files in the same folder: the launcher runs the scripts through `p4-runner.exe`. The tests and the Worker deploy need the repo and Node, so they are not offered in the executable; the `p4` commands need the Perforce client installed. `dist/`, `build/` and `*.spec` are git-ignored: the executables are rebuilt, not archived.
+
 ---
 
 *Leonardo Villa — Digital Tech Laboratory Specialist, Nuova Accademia di Belle Arti, Milan*

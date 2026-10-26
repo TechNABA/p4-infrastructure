@@ -26,3 +26,8 @@ venv/
 # Sistema
 .DS_Store
 Thumbs.db
+
+# Eseguibili del lanciatore: si ricostruiscono, non si archiviano
+dist/
+build/
+*.spec
