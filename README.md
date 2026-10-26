@@ -88,6 +88,8 @@ python -m PyInstaller --noconfirm --onefile --console --icon scripts/icona.ico -
 
 Keep the two files in the same folder: the launcher runs the scripts through `p4-runner.exe`. The tests and the Worker deploy need the repo and Node, so they are not offered in the executable; the `p4` commands need the Perforce client installed. `dist/`, `build/` and `*.spec` are git-ignored: the executables are rebuilt, not archived.
 
+The executables carry a copy of the scripts as they were when they were built, so they do not follow later fixes: the window title shows the build date, and a warning appears when a script in the repo is newer. On a machine with Python, open `scripts/launcher.pyw` instead: it always runs the current scripts.
+
 ---
 
 *Leonardo Villa — Digital Tech Laboratory Specialist, Nuova Accademia di Belle Arti, Milan*

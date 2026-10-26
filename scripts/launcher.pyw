@@ -30,6 +30,7 @@ opzioni, test/test_launcher.py ti dice quale riga è rimasta indietro.
 """
 
 import ctypes
+import datetime
 import os
 import re
 import subprocess
@@ -320,6 +321,26 @@ def visibile(argv):
     return argv
 
 
+def momento_costruzione(file):
+    """Quando sono stati costruiti gli eseguibili: il più vecchio dei due, basta che uno sia rimasto indietro."""
+    tempi = [Path(f).stat().st_mtime for f in file if Path(f).is_file()]
+    return min(tempi) if tempi else None
+
+
+def script_piu_recenti(cartella, costruito):
+    """I file di codice modificati dopo la costruzione: l'eseguibile ne porta una copia vecchia. Vuoto se la
+    cartella non c'è (l'eseguibile sta fuori dalla repo, e allora non si può sapere)."""
+    if not cartella.is_dir():
+        return []
+    return sorted(p.name for p in cartella.iterdir() if p.suffix in (".py", ".pyw") and p.stat().st_mtime > costruito)
+
+
+def titolo(costruito):
+    if costruito is None:
+        return "p4-infrastructure"
+    return "p4-infrastructure · eseguibile del " + datetime.datetime.fromtimestamp(costruito).strftime("%d/%m/%Y %H:%M")
+
+
 def per_eseguibile(argv):
     """Nell'eseguibile non c'è Python né la cartella scripts: «python scripts/X.py» diventa il runner
     accanto a noi. Da sorgente, e per gli altri comandi, resta com'è."""
@@ -463,6 +484,7 @@ class App:
         self.campi = {k: tk.StringVar() for k in ("user", "team", "keep", "change", "client")}
         self.token = None  # solo in memoria: mai su disco, mai nella riga di comando
         self.token_ambiente = bool(os.environ.get("NABA_ADMIN_TOKEN", "").strip())
+        self.costruito = momento_costruzione([sys.executable, CARTELLA / RUNNER]) if IN_ESEGUIBILE else None
         self._font()
         self._costruisci()
         self.ricerca.trace_add("write", self._ricerca_cambiata)
@@ -470,6 +492,7 @@ class App:
             var.trace_add("write", lambda *_: self.aggiorna())
         self.aggiorna()
         self.stato_accesso()
+        self.stato_versione()
         self.cerca.focus_set()
         root.after(50, lambda: barra_nera(root))
 
@@ -499,7 +522,7 @@ class App:
 
     def _costruisci(self):
         px, f, root = self.px, self.f, self.root
-        root.title("p4-infrastructure")
+        root.title(titolo(self.costruito))
         try:
             root.iconbitmap(default=str(ICONA))  # vale anche per i dialoghi
         except tk.TclError:
@@ -540,6 +563,8 @@ class App:
         self.chip = {chiave: (self._chip(chips, lambda k=chiave: self._filtra(k)), nome) for chiave, nome in FILTRI}
         tk.Frame(chips, bg=BG, width=px(14)).pack(side="left")
         self.chip_area = {chiave: self._chip(chips, lambda k=chiave: self._filtra_area(k)) for chiave in AREE}
+        self.avviso = tk.Label(chips, bg=BG, fg=ACCENT, font=f["ui"])
+        self.avviso.pack(side="right")
 
         corpo = tk.Frame(root, bg=BG)
         corpo.grid(row=3, sticky="nsew", padx=(m, px(8)), pady=(px(8), px(8)))
@@ -676,6 +701,15 @@ class App:
         else:
             self.accesso.config(text="○  Accedi con il token admin", fg=ACCENT, cursor="hand2")
 
+    def scripts_nuovi(self):
+        """Gli script della repo cambiati dopo la costruzione, se l'eseguibile sta in dist/ dentro la repo."""
+        if self.costruito is None:
+            return []
+        return script_piu_recenti(CARTELLA.parent / "scripts", self.costruito)
+
+    def stato_versione(self):
+        self.avviso.config(text="▲  Eseguibile vecchio: ricostruiscilo" if self.scripts_nuovi() else "")
+
     def accedi(self):
         """Chiede il token admin e lo verifica sul Worker. Vuoto o «Salta»: si lavora senza, e gli script
         lo chiedono nella loro finestra."""
@@ -724,6 +758,8 @@ class App:
             testo = f"{p.title}\n\n{AVVISO[p.risk]}"
             if p.note:
                 testo += f"\n{p.note}"
+            if self.scripts_nuovi():
+                testo += "\nL'eseguibile è più vecchio degli script nella repo: ricostruiscilo (comandi nel README)."
             if p.risk == "destroy" and "keep" in segnaposti(p.argv) and not self.campi["keep"].get().strip():
                 testo += "\nNessun account da salvare: oltre al tuo utente non è protetto nessuno."
             if not messagebox.askokcancel("Eseguire?", f"{testo}\n\n{riga}", icon="warning",
