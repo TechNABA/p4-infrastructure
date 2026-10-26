@@ -14,6 +14,7 @@ nel parser dello script a cui punta.
 """
 
 import contextlib
+import datetime
 import importlib.machinery
 import importlib.util
 import io
@@ -345,6 +346,43 @@ class ExecutableTest(unittest.TestCase):
 
     def test_every_area_keeps_something_to_show(self):
         self.assertEqual({p.area for p in launcher.comandi(True)}, set(launcher.AREE))
+
+
+class BuildDateTest(unittest.TestCase):
+    """L'eseguibile porta una copia degli script: la finestra deve far vedere quanto è vecchia."""
+
+    def setUp(self):
+        self.cartella = tempfile.TemporaryDirectory()
+        self.addCleanup(self.cartella.cleanup)
+        self.dir = Path(self.cartella.name)
+
+    def crea(self, nome, mtime):
+        percorso = self.dir / nome
+        percorso.write_text("x")
+        os.utime(percorso, (mtime, mtime))
+        return percorso
+
+    def test_the_oldest_of_the_two_executables_counts(self):
+        gui, runner_exe = self.crea("gui.exe", 5000), self.crea("p4-runner.exe", 3000)
+        self.assertEqual(launcher.momento_costruzione([gui, runner_exe]), 3000)
+        self.assertEqual(launcher.momento_costruzione([gui, self.dir / "manca.exe"]), 5000)
+        self.assertIsNone(launcher.momento_costruzione([self.dir / "manca.exe"]))
+
+    def test_only_scripts_changed_after_the_build_are_reported(self):
+        self.crea("nuovo.py", 6000)
+        self.crea("vecchio.py", 4000)
+        self.crea("launcher.pyw", 7000)
+        self.crea("note.txt", 9000)  # non è codice
+        self.assertEqual(launcher.script_piu_recenti(self.dir, 5000), ["launcher.pyw", "nuovo.py"])
+        self.assertEqual(launcher.script_piu_recenti(self.dir, 8000), [])
+
+    def test_no_repo_next_to_the_executable_means_no_warning(self):
+        self.assertEqual(launcher.script_piu_recenti(self.dir / "non-esiste", 5000), [])
+
+    def test_the_title_shows_the_build_date_only_for_an_executable(self):
+        self.assertEqual(launcher.titolo(None), "p4-infrastructure")
+        marca = datetime.datetime(2026, 10, 26, 11, 54).timestamp()
+        self.assertEqual(launcher.titolo(marca), "p4-infrastructure · eseguibile del 26/10/2026 11:54")
 
 
 class SourceModeTest(unittest.TestCase):
