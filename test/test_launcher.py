@@ -18,9 +18,7 @@ import importlib.machinery
 import importlib.util
 import io
 import os
-import re
 import struct
-import subprocess
 import sys
 import tempfile
 import types
