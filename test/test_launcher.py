@@ -104,7 +104,7 @@ class CatalogTest(unittest.TestCase):
         for p in launcher.CATALOGO:
             self.assertEqual(launcher.ps_quote(p.argv[0]), p.argv[0], p.title)
 
-    def test_every_command_has_a_description_and_the_risky_ones_a_note_or_none(self):
+    def test_every_command_has_a_short_description(self):
         for p in launcher.CATALOGO:
             self.assertTrue(p.desc.strip(), f"{p.title}: manca la descrizione")
             self.assertLessEqual(len(p.desc), 130, f"{p.title}: descrizione troppo lunga per la riga")
