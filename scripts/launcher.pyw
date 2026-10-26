@@ -2,13 +2,17 @@
 """
 launcher.pyw
 
-Elenco cliccabile dei comandi di p4-infrastructure. Doppio clic su una riga e il
-comando parte in una finestra di PowerShell aperta nella cartella della repo.
+Elenco cliccabile dei comandi di p4-infrastructure. Doppio clic su una riga (o
+Invio su quella evidenziata) e il comando parte in una finestra di PowerShell
+aperta nella cartella della repo.
 
 L'app non vede mai ciò che digiti lì dentro: password e token di Perforce e del
 Worker si scrivono nella finestra del comando, come sempre. Per questo la
 finestra resta aperta (-NoExit) e UTF-8 è già impostato: le due righe di
 sessione dell'elenco a mano non servono più.
+
+Se il comando ha bisogno di un valore (username, team, numero di changelist,
+workspace, account da salvare) un piccolo dialogo lo chiede al doppio clic.
 
     doppio clic sul file, oppure:  pythonw scripts/launcher.pyw
 
@@ -38,14 +42,13 @@ class LauncherError(ValueError):
 
 # ── Catalogo ────────────────────────────────────────────────────
 class Preset(NamedTuple):
-    area: str    # Perforce o Worker: cosa tocca il comando
+    area: str    # Perforce, p4 o Worker: cosa tocca il comando
     group: str
     title: str
     argv: list   # parole del comando; una tupla è un gruppo opzionale, omesso se vuoto
     risk: str    # read, write, destroy
-    what: str
-    asks: tuple  # (domanda, solo_in_esecuzione): cosa chiederà lo script, in ordine
-    note: str
+    desc: str    # una riga, accanto al titolo
+    note: str    # in più, solo nella conferma dei comandi che scrivono o cancellano
 
 
 RISCHIO = {
@@ -58,155 +61,147 @@ AVVISO = {
     "destroy": "Cancella e non si torna indietro.",
 }
 
-TOKEN = ("token admin", False)
-CONNESSIONE = (("server", False), ("utente Perforce", False), ("password", False))
+
+def _famiglia(area, group, base, note, presets):
+    return [Preset(area, group, title, base + args, risk, desc, note) for title, args, risk, desc in presets]
 
 
-def _famiglia(area, group, base, what, asks, note, presets):
-    return [Preset(area, group, title, base + args, risk, what, asks, note) for title, args, risk in presets]
-
-
-def _p4(group, title, argv, risk, what, note=""):
-    return _famiglia("p4", group, argv, what, (), note, [(title, [], risk)])
+def _p4(group, title, argv, risk, desc, note=""):
+    return _famiglia("p4", group, argv, note, [(title, [], risk, desc)])
 
 
 CATALOGO = [
-    # ── Perforce: il server, gli utenti, i gruppi e i depot ──
+    # ── Perforce: gli script, che chiedono da soli server, utente e password ──
     *_famiglia(
         "Perforce", "Provisioning", ["python", "scripts/perforce_provision.py"],
-        "Crea utenti, gruppi, depot e permessi dai record pending del KV.",
-        (TOKEN, *CONNESSIONE,
-         ("password iniziale studenti (due volte, Invio per non impostarla)", False),
-         ("il team esiste già: aggiungere? [s/N]", True)),
         "Un gruppo o un depot già esistente senza la riga di permesso non è di questo flusso: "
         "il team viene rifiutato e il record va in error.",
-        [("Anteprima del provisioning", ["--dry-run"], "read"),
-         ("Provisioning", [], "write"),
-         ("Anteprima dei retry", ["--retry-errors", "--dry-run"], "read"),
-         ("Riprova i record in error", ["--retry-errors"], "write")]),
+        [("Anteprima del provisioning", ["--dry-run"], "read",
+          "Mostra utenti, gruppi e depot che creerebbe. Non modifica niente."),
+         ("Provisioning", [], "write",
+          "Crea utenti, gruppi, depot e permessi dai record pending del KV."),
+         ("Anteprima dei retry", ["--retry-errors", "--dry-run"], "read",
+          "Come l'anteprima, ma ripassa anche i record in error."),
+         ("Riprova i record in error", ["--retry-errors"], "write",
+          "Rilancia il provisioning anche sui record in error, dopo aver sistemato la causa.")]),
 
     *_famiglia(
         "Perforce", "Rimozione", ["python", "scripts/perforce_cleanup.py", "--user", "{user}"],
-        "Toglie lo studente da Perforce e dal KV: gruppi, changelist pending, workspace e, se non gli resta accesso, l'account.",
-        (TOKEN, *CONNESSIONE, ("CONFIRM", True)),
         "Irreversibile. Il depot del team e la sua riga in p4 protect restano: vanno tolti a mano. "
         "A fine esecuzione lo script elenca ruoli e canali Discord da cercare.",
-        [("Anteprima della rimozione", ["--dry-run"], "read"),
-         ("Rimuovi lo studente", [], "destroy"),
-         ("Rimuovi da un solo team", ["--team", "{team}"], "destroy"),
-         ("Rimuovi dai gruppi, tieni l'account", ["--keep-account"], "destroy"),
-         ("Rimuovi e cancella il record", ["--delete-record"], "destroy")]),
+        [("Anteprima della rimozione", ["--dry-run"], "read",
+          "Mostra cosa toglierebbe allo studente, senza modificare niente."),
+         ("Rimuovi lo studente", [], "destroy",
+          "Lo toglie da gruppi, changelist, workspace e KV; cancella l'account se non gli resta accesso."),
+         ("Rimuovi da un solo team", ["--team", "{team}"], "destroy",
+          "Lo toglie solo da quel team; l'account resta se ne ha altri."),
+         ("Rimuovi dai gruppi, tieni l'account", ["--keep-account"], "destroy",
+          "Lo toglie dai gruppi ma non cancella l'account Perforce."),
+         ("Rimuovi e cancella il record", ["--delete-record"], "destroy",
+          "Cancella anche il record dal KV invece di segnarlo removed.")]),
     *_famiglia(
         "Perforce", "Rimozione", ["python", "scripts/perforce_prune.py"],
-        "Rimuove gli account che non stanno in nessun gruppo con protezioni.",
-        (*CONNESSIONE, ("CONFIRM", True)),
         "Il tuo utente è sempre protetto. Service account e altri admin vanno indicati in «Account da salvare».",
-        [("Anteprima degli account orfani", ["--dry-run", ("--keep", "{keep}")], "read"),
-         ("Rimuovi gli account orfani", [("--keep", "{keep}")], "destroy")]),
+        [("Anteprima degli account orfani", ["--dry-run", ("--keep", "{keep}")], "read",
+          "Elenca gli account senza accesso a nessun depot, senza rimuoverli."),
+         ("Rimuovi gli account orfani", [("--keep", "{keep}")], "destroy",
+          "Rimuove gli account che non stanno in nessun gruppo con protezioni.")]),
 
     *_famiglia(
         "Perforce", "Import", ["python", "scripts/export_p4_users.py"],
-        "Porta gli account già presenti su Perforce nel KV come existing, così il provisioning non li ricrea.",
-        (*CONNESSIONE, ("token admin", True)),
         "L'utente con cui ti connetti non finisce mai nell'export.",
-        [("Anteprima dell'import", ["--dry-run", ("--exclude", "{keep}")], "read"),
-         ("Importa nel KV", [("--exclude", "{keep}")], "write"),
-         ("Importa senza sovrascrivere", ["--skip-existing", ("--exclude", "{keep}")], "write")]),
-    *_famiglia("Perforce", "Test", ["python", "-m", "unittest", "discover", "-s", "test"],
-               "Test degli script.", (), "Non chiedono credenziali.",
-               [("Test degli script", [], "read")]),
+        [("Anteprima dell'import", ["--dry-run", ("--exclude", "{keep}")], "read",
+          "Mostra quali account di Perforce porterebbe nel KV."),
+         ("Importa nel KV", [("--exclude", "{keep}")], "write",
+          "Porta gli account già su Perforce nel KV come existing, così il provisioning non li ricrea."),
+         ("Importa senza sovrascrivere", ["--skip-existing", ("--exclude", "{keep}")], "write",
+          "Come sopra, ma non tocca i record già presenti nel KV.")]),
+    *_famiglia(
+        "Perforce", "Test", ["python", "-m", "unittest", "discover", "-s", "test"], "",
+        [("Test degli script", [], "read", "Controllano gli script senza toccare Perforce né il KV.")]),
 
     # ── p4: comandi diretti del client, per l'admin ──
     *_p4("Server e account", "Accedi a Perforce", ["p4", "login"], "read",
-         "Apre la sessione con l'utente impostato su questa macchina (p4 set).",
-         "Gli altri comandi p4 la richiedono. La password si scrive nella finestra."),
+         "Apre la sessione: gli altri comandi p4 la richiedono."),
     *_p4("Server e account", "Info sul server", ["p4", "info"], "read",
-         "Versione del server, licenza, Case Handling e statistiche."),
+         "Versione, licenza, Case Handling e statistiche del server."),
     *_p4("Server e account", "Licenze in uso", ["p4", "license", "-u"], "read",
-         "Quanti utenti usano la licenza, il limite e la scadenza.", "Serve un admin."),
+         "Quanti utenti usano la licenza, il limite e la scadenza (serve un admin)."),
     *_p4("Server e account", "Utenti del server", ["p4", "users"], "read", "Tutti gli account."),
     *_p4("Server e account", "Depot del server", ["p4", "depots"], "read", "Tutti i depot."),
 
     *_p4("Un utente", "Gruppi di un utente", ["p4", "groups", "{user}"], "read",
          "I gruppi di cui l'utente fa parte."),
     *_p4("Un utente", "Permessi di un utente", ["p4", "protects", "-u", "{user}"], "read",
-         "Le righe della tabella protect che valgono per l'utente.", "Serve un super user."),
+         "Le righe di protect che valgono per l'utente (serve un super user)."),
     *_p4("Un utente", "Workspace di un utente", ["p4", "clients", "-u", "{user}"], "read",
-         "I workspace dell'utente: il nome serve ai comandi sui workspace."),
+         "I suoi workspace: il nome serve ai comandi sui workspace."),
     *_p4("Un utente", "Changelist pending di un utente", ["p4", "changes", "-s", "pending", "-u", "{user}"], "read",
-         "Le changelist pending dell'utente: il numero serve ai comandi sulle changelist."),
+         "Le sue changelist pending: il numero serve ai comandi sulle changelist."),
     *_p4("Un utente", "File aperti da un utente", ["p4", "opened", "-a", "-u", "{user}"], "read",
-         "I file che l'utente tiene aperti, in qualsiasi workspace."),
+         "I file che tiene aperti, in qualsiasi workspace."),
     *_p4("Un utente", "Reimposta la password di un utente", ["p4", "passwd", "{user}"], "write",
-         "Imposta una nuova password per l'utente.",
-         "Serve un super user. La nuova password si scrive nella finestra, non sulla riga di comando."),
+         "Imposta una nuova password: si scrive nella finestra (serve un super user).",
+         "La nuova password si scrive nella finestra, non sulla riga di comando."),
 
     *_p4("Changelist", "File aperti in una changelist", ["p4", "opened", "-a", "-c", "{change}"], "read",
          "I file aperti nella changelist, con il workspace che li tiene."),
     *_p4("Changelist", "Sblocca i file di una changelist", ["p4", "unlock", "-f", "-c", "{change}"], "write",
-         "Sblocca i file bloccati di una changelist, anche di un altro utente.", "Serve un admin."),
+         "Sblocca i file bloccati, anche di un altro utente (serve un admin)."),
     *_p4("Changelist", "Cancella gli shelve di una changelist", ["p4", "shelve", "-d", "-f", "-c", "{change}"],
-         "destroy", "Cancella i file in shelve di una changelist, anche di un altro utente.",
+         "destroy", "Cancella i suoi file in shelve, anche di un altro utente.",
          "Chi ha una risoluzione in sospeso su quello shelve non potrà più unirne il contenuto."),
     *_p4("Changelist", "Cancella una changelist, anche di un altro utente", ["p4", "change", "-d", "-f", "{change}"],
-         "destroy", "Cancella la changelist pending.",
+         "destroy", "Cancella la changelist pending; con file aperti o shelve prima vanno tolti.",
          "Con file aperti o in shelve prima servono il revert del workspace e la cancellazione degli shelve: "
          "lo script di rimozione li fa da solo."),
 
     *_p4("Workspace", "Revert dei file aperti in un workspace", ["p4", "revert", "-C", "{client}", "//..."],
-         "destroy", "Annulla i file aperti in un workspace, anche di un altro utente.",
-         "Le modifiche non ancora inviate vanno perse. Serve un admin."),
+         "destroy", "Annulla i file aperti, anche di un altro utente; le modifiche non inviate vanno perse.",
+         "Serve un admin."),
     *_p4("Workspace", "Cancella un workspace, anche di un altro utente", ["p4", "client", "-d", "-f", "{client}"],
-         "destroy", "Cancella il workspace anche se è bloccato; i file aperti vengono annullati.",
+         "destroy", "Lo cancella anche se è bloccato; i file aperti vengono annullati. Rifiuta se ha shelve.",
          "Se dentro ci sono degli shelve p4 rifiuta: usa la variante con gli shelve."),
     *_p4("Workspace", "Cancella un workspace e i suoi shelve", ["p4", "client", "-d", "-f", "-Fd", "{client}"],
-         "destroy", "Come sopra, e cancella anche gli shelve del workspace.", "Gli shelve cancellati non si recuperano."),
+         "destroy", "Come sopra, e cancella anche gli shelve.", "Gli shelve cancellati non si recuperano."),
 
     *_p4("Team chiuso", "Cancella il depot del team", ["p4", "depot", "-d", "{team}"], "destroy",
-         "Cancella il depot del team, che il cleanup lascia di proposito.",
-         "Solo se il depot è vuoto e il team è chiuso davvero."),
+         "Solo se è vuoto e il team è chiuso: il cleanup lo lascia di proposito."),
     *_p4("Team chiuso", "Togli la riga di permesso", ["p4", "protect"], "write",
-         "Apre la tabella dei permessi.", "Cancella la riga write group NomeTeam * //NomeTeam/... e salva."),
+         "Apre la tabella protect: cancella la riga write group NomeTeam * //NomeTeam/... e salva."),
     *_p4("Team chiuso", "Anteprima: cosa cancellerebbe sul depot del team", ["p4", "obliterate", "//{team}/..."], "read",
-         "Mostra i file che verrebbero cancellati, senza toccare niente.", "Senza -y p4 fa solo l'anteprima."),
+         "Mostra i file che verrebbero cancellati, senza toccare niente."),
     *_p4("Team chiuso", "Cancella per sempre i file del depot del team", ["p4", "obliterate", "-y", "//{team}/..."],
-         "destroy", "Cancella per sempre i file del depot e la loro storia.",
-         "Il server non conserva traccia che esistessero. Fai prima l'anteprima; poi il depot vuoto si cancella. "
-         "Serve un admin."),
+         "destroy", "Cancella file e storia, senza traccia. Fai prima l'anteprima.",
+         "Il server non conserva traccia che esistessero. Serve un admin."),
 
     # ── Worker: il KV e Cloudflare ──
     *_famiglia(
-        "Worker", "Record nel KV", ["python", "scripts/kv_status.py"],
-        "Conta i record del KV per status e per team.",
-        (TOKEN,), "CSV e XLSX contengono dati personali: finiscono nella cartella della repo, già nel .gitignore.",
-        [("Stato del KV", [], "read"),
-         ("Elenca gli username", ["--usernames"], "read"),
-         ("Solo i pending", ["--status", "pending"], "read"),
-         ("Solo gli error", ["--status", "error"], "read"),
-         ("Esporta in XLSX", ["--xlsx", "utenti.xlsx"], "read"),
-         ("Esporta in CSV", ["--csv", "utenti.csv"], "read")]),
-    *_famiglia("Worker", "Pubblicazione", ["npx", "wrangler@4.150.0", "deploy"],
-               "Pubblica worker.js in produzione, con wrangler.jsonc.", (),
-               "Il Worker si chiama ancora perforce-registration: il nome sta nell'URL scritto negli script degli studenti.",
-               [("Pubblica il Worker", [], "write")]),
-    *_famiglia("Worker", "Pubblicazione", ["npx", "wrangler@4.150.0", "secret", "put", "ADMIN_TOKEN"],
-               "Chiede il nuovo token admin e lo salva come Secret del Worker.", (),
-               "Cloudflare non lo rimostra dopo il salvataggio: aggiorna anche il Vaultwarden.",
-               [("Cambia il token admin del Worker", [], "write")]),
-    *_famiglia("Worker", "Test", ["npm", "test"], "Test del Worker e del form.", (),
-               "Nessun test tocca Perforce o il KV.",
-               [("Test del Worker e del form", [], "read")]),
+        "Worker", "Record nel KV", ["python", "scripts/kv_status.py"], "",
+        [("Stato del KV", [], "read", "Conta i record per status e per team."),
+         ("Elenca gli username", ["--usernames"], "read", "Username per team e status, senza nomi né email."),
+         ("Solo i pending", ["--status", "pending"], "read", "Solo i record ancora da provisionare."),
+         ("Solo gli error", ["--status", "error"], "read", "Solo i record da sistemare."),
+         ("Esporta in XLSX", ["--xlsx", "utenti.xlsx"], "read",
+          "Scrive utenti.xlsx nella cartella della repo: dati personali, non committarlo."),
+         ("Esporta in CSV", ["--csv", "utenti.csv"], "read",
+          "Scrive utenti.csv nella cartella della repo: dati personali, non committarlo.")]),
+    *_famiglia(
+        "Worker", "Pubblicazione", ["npx", "wrangler@4.150.0", "deploy"],
+        "Il Worker si chiama ancora perforce-registration: il nome sta nell'URL scritto negli script degli studenti.",
+        [("Pubblica il Worker", [], "write", "Pubblica worker.js in produzione, con wrangler.jsonc.")]),
+    *_famiglia(
+        "Worker", "Pubblicazione", ["npx", "wrangler@4.150.0", "secret", "put", "ADMIN_TOKEN"],
+        "Cloudflare non lo rimostra dopo il salvataggio: aggiorna anche il Vaultwarden.",
+        [("Cambia il token admin del Worker", [], "write", "Chiede il nuovo token e lo salva come Secret del Worker.")]),
+    *_famiglia(
+        "Worker", "Test", ["npm", "test"], "",
+        [("Test del Worker e del form", [], "read", "Nessun test tocca Perforce o il KV.")]),
 ]
 
 
 def parole(argv):
     return [t for voce in argv for t in (voce if isinstance(voce, tuple) else (voce,))]
-
-
-def domande(preset):
-    """Le domande che lo script farà: in anteprima mancano quelle che ci sono solo eseguendo."""
-    dry = "--dry-run" in preset.argv
-    return [d for d, solo_esecuzione in preset.asks if not (dry and solo_esecuzione)]
 
 
 # ── Costruzione del comando ─────────────────────────────────────
@@ -276,25 +271,27 @@ def launch(argv):
     )
 
 
+# ── Cosa chiedere al doppio clic ────────────────────────────────
 AREE = {
     "Perforce": "Gli script di provisioning, rimozione e import.",
     "p4": "Comandi diretti del client: usano server e utente di questa macchina (p4 set) e un login già fatto.",
     "Worker": "Il KV e Cloudflare.",
 }
 
-# Valori che il dettaglio chiede solo ai comandi che li usano (username e team stanno in testata).
 # L'elenco di account prende il nome dall'opzione: --keep salva, --exclude non esporta.
 ELENCO = {"--keep": "Account da salvare", "--exclude": "Account da non esportare"}
+ETICHETTE = {"user": "Username", "team": "Team", "change": "Numero della changelist", "client": "Workspace"}
 SUGGERIMENTI = {
-    "keep": "separati da virgola, ad esempio admin,servicebot",
+    "user": "l'account Perforce, ad esempio mario_rossi",
+    "team": "il nome del team come lo scrive Perforce, ad esempio ProjectAlpha",
+    "keep": "separati da virgola, ad esempio admin,servicebot; si può lasciare vuoto",
     "change": "solo cifre; lo trovi con «Changelist pending di un utente»",
     "client": "il nome esatto; lo trovi con «Workspace di un utente»",
 }
-ETICHETTE = {"change": "Numero della changelist", "client": "Workspace"}
 
 
 def campo_extra(preset):
-    """Il campo che il dettaglio mostra per questo comando: (chiave, etichetta, suggerimento), o None."""
+    """Il valore, oltre a username e team, che il comando chiede: (chiave, etichetta, suggerimento), o None."""
     for voce in preset.argv:
         if isinstance(voce, tuple) and "{keep}" in voce:
             return "keep", ELENCO[voce[0]], SUGGERIMENTI["keep"]
@@ -304,11 +301,63 @@ def campo_extra(preset):
     return None
 
 
+def da_chiedere(preset, params):
+    """I valori da chiedere prima di lanciare. Username e team solo se mancano: stanno in testata e si
+    vedono. Gli altri sempre, già compilati con l'ultimo valore: il numero di changelist di prima non
+    deve partire da solo su una cancellazione."""
+    chieste = [(k, ETICHETTE[k], SUGGERIMENTI[k]) for k in ("user", "team")
+               if k in segnaposti(preset.argv) and not (params.get(k) or "").strip()]
+    extra = campo_extra(preset)
+    return chieste + ([extra] if extra else [])
+
+
 # ── Finestra ────────────────────────────────────────────────────
 BG, DEEP, SEL, LINE = "#000000", "#0d0d0d", "#262626", "#3a3a3a"
 INK, DIM, FAINT, ACCENT = "#f2f2f2", "#b0b0b0", "#808080", "#f5df74"
 FILTRI = (("all", "Tutti"), ("read", "Legge"), ("write", "Scrive"), ("destroy", "Cancella"))
 CAMPI = (("user", "Username"), ("team", "Team"))
+
+
+class Chiedi(tk.Toplevel):
+    """Dialogo per un valore: etichetta, suggerimento e campo già compilato con l'ultimo valore."""
+
+    def __init__(self, app, etichetta, suggerimento, iniziale):
+        super().__init__(app.root, bg=DEEP)
+        self.risultato = None
+        self.title(etichetta)
+        self.transient(app.root)
+        self.resizable(False, False)
+        px, f = app.px, app.f
+        pad = px(22)
+        tk.Label(self, text=etichetta, bg=DEEP, fg=INK, font=f["titolo"]).pack(anchor="w", padx=pad, pady=(pad, 0))
+        tk.Label(self, text=suggerimento, bg=DEEP, fg=FAINT, font=f["ui"]).pack(anchor="w", padx=pad, pady=(px(2), px(12)))
+        self.valore = tk.StringVar(value=iniziale)
+        campo = tk.Entry(self, textvariable=self.valore, width=44, bg=BG, fg=INK, insertbackground=ACCENT,
+                         selectbackground=ACCENT, selectforeground=BG, relief="flat", font=f["mono"],
+                         highlightthickness=1, highlightbackground=LINE, highlightcolor=ACCENT)
+        campo.pack(fill="x", padx=pad, ipady=px(5))
+        riga = tk.Frame(self, bg=DEEP)
+        riga.pack(fill="x", padx=pad, pady=pad)
+        tk.Button(riga, text="Continua", command=self._ok, bg=INK, fg=BG, activebackground=ACCENT,
+                  activeforeground=BG, relief="flat", bd=0, font=f["ui_b"], padx=px(22), pady=px(4),
+                  cursor="hand2").pack(side="right")
+        tk.Button(riga, text="Annulla", command=self.destroy, bg=SEL, fg=INK, activebackground=LINE,
+                  activeforeground=INK, relief="flat", bd=0, font=f["ui_b"], padx=px(16), pady=px(4),
+                  cursor="hand2").pack(side="right", padx=(0, px(10)))
+        self.bind("<Return>", lambda e: self._ok())
+        self.bind("<Escape>", lambda e: self.destroy())
+        campo.focus_set()
+        campo.select_range(0, "end")
+        self.update_idletasks()
+        x = app.root.winfo_rootx() + (app.root.winfo_width() - self.winfo_width()) // 2
+        self.geometry(f"+{max(x, 0)}+{app.root.winfo_rooty() + px(140)}")
+        self.wait_visibility()
+        self.grab_set()
+        self.wait_window()
+
+    def _ok(self):
+        self.risultato = self.valore.get()
+        self.destroy()
 
 
 class App:
@@ -335,12 +384,13 @@ class App:
         ui = next(f for f in ("Segoe UI Variable Text", "Segoe UI", "Arial") if f in presenti)
         mono = next(f for f in ("Cascadia Mono", "Consolas", "Courier New") if f in presenti)
         self.f = {"ui": (ui, 10), "ui_b": (ui, 10, "bold"), "titolo": (ui, 11, "bold"),
-                  "area": (ui, 14, "bold"), "piccolo": (ui, 9), "mono": (mono, 10), "mono_g": (mono, 13)}
+                  "area": (ui, 14, "bold"), "mono": (mono, 10), "mono_g": (mono, 13)}
 
     def _campo(self, genitore, chiave, larghezza, fondo):
         return tk.Entry(genitore, textvariable=self.campi[chiave], width=larghezza, bg=fondo, fg=INK,
-                        insertbackground=ACCENT, relief="flat", font=self.f["mono"], highlightthickness=1,
-                        highlightbackground=LINE, highlightcolor=ACCENT)
+                        insertbackground=ACCENT, selectbackground=ACCENT, selectforeground=BG, relief="flat",
+                        font=self.f["mono"], highlightthickness=1, highlightbackground=LINE,
+                        highlightcolor=ACCENT)
 
     def _chip(self, genitore, comando):
         c = tk.Label(genitore, bg=BG, fg=DIM, font=self.f["ui"], padx=self.px(12), pady=self.px(3),
@@ -353,8 +403,8 @@ class App:
         px, f, root = self.px, self.f, self.root
         root.title("p4-infrastructure")
         root.configure(bg=BG)
-        root.geometry(f"{px(1040)}x{px(800)}")
-        root.minsize(px(780), px(600))
+        root.geometry(f"{px(1080)}x{px(820)}")
+        root.minsize(px(820), px(520))
         root.columnconfigure(0, weight=1)
         root.rowconfigure(3, weight=1)
         m = px(22)
@@ -370,7 +420,8 @@ class App:
         barra.grid(row=1, sticky="ew", padx=m, pady=(px(16), 0))
         tk.Label(barra, text="PS>", bg=DEEP, fg=ACCENT, font=f["mono_g"]).pack(side="left", padx=(px(14), px(8)))
         self.cerca = tk.Entry(barra, textvariable=self.ricerca, bg=DEEP, fg=INK, insertbackground=ACCENT,
-                              relief="flat", font=f["mono_g"], highlightthickness=0)
+                              selectbackground=ACCENT, selectforeground=BG, relief="flat", font=f["mono_g"],
+                              highlightthickness=0)
         self.cerca.pack(side="left", fill="x", expand=True, ipady=px(9))
         self.cerca.bind("<FocusIn>", lambda e: barra.config(highlightbackground=ACCENT))
         self.cerca.bind("<FocusOut>", lambda e: barra.config(highlightbackground=LINE))
@@ -386,11 +437,11 @@ class App:
         self.chip_area = {chiave: self._chip(chips, lambda k=chiave: self._filtra_area(k)) for chiave in AREE}
 
         corpo = tk.Frame(root, bg=BG)
-        corpo.grid(row=3, sticky="nsew", padx=(m, px(8)), pady=(px(8), 0))
+        corpo.grid(row=3, sticky="nsew", padx=(m, px(8)), pady=(px(8), px(8)))
         corpo.columnconfigure(0, weight=1)
         corpo.rowconfigure(0, weight=1)
         self.lista = tk.Text(corpo, bg=BG, fg=INK, bd=0, highlightthickness=0, wrap="word", cursor="arrow",
-                             state="disabled", takefocus=0, padx=0, tabs=(px(126),), font=f["ui"])
+                             state="disabled", takefocus=0, padx=0, tabs=(px(126), px(560)), font=f["ui"])
         self.lista.grid(row=0, column=0, sticky="nsew")
         stile = ttk.Style(root)
         stile.theme_use("clam")
@@ -405,52 +456,14 @@ class App:
                      spacing3=px(2))
         t.tag_config("area_nota", font=f["ui"], foreground=FAINT)
         t.tag_config("gruppo", font=f["ui_b"], foreground=FAINT, lmargin1=px(16), spacing1=px(14), spacing3=px(2))
-        t.tag_config("rischio", font=f["ui_b"], lmargin1=px(16), spacing1=px(9))
+        # La descrizione, se va a capo, resta nella sua colonna: lmargin2 è dove inizia.
+        t.tag_config("rischio", font=f["ui_b"], lmargin1=px(16), lmargin2=px(560), spacing1=px(9))
         for chiave, (_, colore) in RISCHIO.items():
             t.tag_config("c_" + chiave, foreground=colore)
-        t.tag_config("titolo", font=f["titolo"], foreground=INK)
-        t.tag_config("comando", font=f["mono"], foreground=DIM, lmargin1=px(126), lmargin2=px(126), spacing3=px(9))
+        t.tag_config("titolo", font=f["titolo"], foreground=INK, lmargin2=px(560))
+        t.tag_config("descrizione", font=f["ui"], foreground=DIM, lmargin2=px(560))
+        t.tag_config("comando", font=f["mono"], foreground=FAINT, lmargin1=px(126), lmargin2=px(126), spacing3=px(9))
         t.tag_config("vuoto", foreground=DIM, lmargin1=px(16), spacing1=px(20))
-
-        d = tk.Frame(root, bg=DEEP)
-        d.grid(row=4, sticky="ew", pady=(px(8), 0))
-        d.columnconfigure(0, weight=1)
-        pad = px(22)
-        self.d_titolo = tk.Label(d, bg=DEEP, fg=INK, font=f["titolo"], anchor="w")
-        self.d_titolo.grid(row=0, column=0, sticky="w", padx=(pad, 0), pady=(px(14), 0))
-        self.d_rischio = tk.Label(d, bg=DEEP, font=f["ui_b"])
-        self.d_rischio.grid(row=0, column=1, sticky="e", padx=pad, pady=(px(14), 0))
-        self.d_testi = []
-        for riga, colore in ((1, DIM), (2, DIM), (3, FAINT)):
-            lbl = tk.Label(d, bg=DEEP, fg=colore, font=f["ui"], anchor="w", justify="left")
-            lbl.grid(row=riga, column=0, columnspan=2, sticky="w", padx=pad, pady=(px(4), 0))
-            self.d_testi.append(lbl)
-        d.bind("<Configure>", lambda e: [l.config(wraplength=e.width - 2 * pad) for l in self.d_testi])
-        self.d_extra = tk.Frame(d, bg=DEEP)
-        self.d_extra.grid(row=4, column=0, columnspan=2, sticky="w", padx=pad, pady=(px(12), 0))
-        self.d_extra_nome = tk.Label(self.d_extra, bg=DEEP, fg=INK, font=f["ui"])
-        self.d_extra_nome.pack(side="left")
-        self.d_extra_campo = self._campo(self.d_extra, "keep", 26, BG)
-        self.d_extra_campo.pack(side="left", padx=px(10), ipady=px(3))
-        self.d_extra_nota = tk.Label(self.d_extra, bg=DEEP, fg=FAINT, font=f["ui"])
-        self.d_extra_nota.pack(side="left")
-        cmd = tk.Frame(d, bg=BG)
-        cmd.grid(row=5, column=0, columnspan=2, sticky="ew", padx=pad, pady=px(14))
-        cmd.columnconfigure(0, weight=1)
-        self.d_cmd = tk.Label(cmd, bg=BG, fg=INK, font=f["mono"], anchor="w", justify="left",
-                              padx=px(12), pady=px(10), wraplength=px(640))
-        self.d_cmd.grid(row=0, column=0, sticky="ew")
-        self.b_copia = tk.Button(cmd, text="Copia", command=self.copia, bg=SEL, fg=INK, activebackground=LINE,
-                                 activeforeground=INK, relief="flat", bd=0, font=f["ui_b"], padx=px(16),
-                                 cursor="hand2")
-        self.b_copia.grid(row=0, column=1, sticky="ns", padx=(0, px(1)))
-        self.b_esegui = tk.Button(cmd, text="Esegui", command=self.esegui, bg=INK, fg=BG, activebackground=ACCENT,
-                                  activeforeground=BG, relief="flat", bd=0, font=f["ui_b"], padx=px(22),
-                                  cursor="hand2")
-        self.b_esegui.grid(row=0, column=2, sticky="ns")
-
-        self.stato_lbl = tk.Label(root, bg=DEEP, fg=FAINT, font=f["piccolo"], anchor="w", padx=pad, pady=px(7))
-        self.stato_lbl.grid(row=5, sticky="ew")
 
     # ── elenco ──
     def _ricerca_cambiata(self, *_):
@@ -479,7 +492,8 @@ class App:
         self.vis = [p for p in CATALOGO
                     if (self.filtro == "all" or p.risk == self.filtro)
                     and (self.area_filtro is None or p.area == self.area_filtro)
-                    and all(w in f"{p.title} {p.area} {p.group} {self.testo(p, params)}".lower() for w in termini)]
+                    and all(w in f"{p.title} {p.desc} {p.area} {p.group} {self.testo(p, params)}".lower()
+                            for w in termini)]
         self.sel = min(self.sel, max(len(self.vis) - 1, 0))
         for chiave, (c, nome) in self.chip.items():
             n = sum(1 for p in CATALOGO if chiave == "all" or p.risk == chiave)
@@ -491,10 +505,9 @@ class App:
             c.config(text=f"{chiave} {sum(1 for p in CATALOGO if p.area == chiave)}",
                      bg=INK if attivo else BG, fg=BG if attivo else DIM, highlightbackground=INK if attivo else LINE)
         self.disegna(params)
-        self.dettaglio()
 
     def disegna(self, params):
-        t, px = self.lista, self.px
+        t = self.lista
         y = t.yview()[0]
         t.config(state="normal")
         t.delete("1.0", "end")
@@ -509,15 +522,16 @@ class App:
                 t.insert("end", p.group + "\n", "gruppo")
             riga = f"r{i}"
             t.insert("end", RISCHIO[p.risk][0], (riga, "rischio", "c_" + p.risk))
-            t.insert("end", "\t" + p.title + "\n", (riga, "titolo"))
+            t.insert("end", "\t" + p.title, (riga, "titolo"))
+            t.insert("end", "\t" + p.desc + "\n", (riga, "descrizione"))
             t.insert("end", self.testo(p, params) + "\n", (riga, "comando"))
             t.tag_bind(riga, "<Button-1>", lambda e, i=i: self.scegli(i))
             t.tag_bind(riga, "<Double-Button-1>", lambda e, i=i: self.doppio(i))
             t.tag_bind(riga, "<Enter>", lambda e: t.config(cursor="hand2"))
             t.tag_bind(riga, "<Leave>", lambda e: t.config(cursor="arrow"))
         if not self.vis:
-            t.insert("end", "Nessun comando per questa ricerca. Prova con una parola del comando: "
-                            "cleanup, dry-run, xlsx.", "vuoto")
+            t.insert("end", "Nessun comando per questa ricerca. Prova con una parola del comando o della "
+                            "descrizione: cleanup, dry-run, licenza.", "vuoto")
         t.config(state="disabled")
         self.colora()
         t.yview_moveto(y)
@@ -529,7 +543,6 @@ class App:
     def scegli(self, i):
         self.sel = i
         self.colora()
-        self.dettaglio()
         self.cerca.focus_set()
         # Un doppio clic seleziona una parola: la selezione del testo qui non serve a niente.
         self.root.after_idle(lambda: self.lista.tag_remove("sel", "1.0", "end"))
@@ -543,66 +556,36 @@ class App:
         if self.vis:
             self.sel = (self.sel + passo) % len(self.vis)
             self.colora()
-            self.dettaglio()
             self.lista.see(self.lista.tag_ranges(f"r{self.sel}")[0])
         return "break"
 
-    # ── dettaglio ──
-    def corrente(self):
-        return self.vis[self.sel] if self.vis else None
-
-    def dettaglio(self):
-        p = self.corrente()
-        stato = "normal" if p else "disabled"
-        self.b_esegui.config(state=stato)
-        self.b_copia.config(state=stato)
-        if not p:
-            self.d_titolo.config(text="")
-            self.d_rischio.config(text="")
-            self.d_cmd.config(text="")
-            self.d_extra.grid_remove()
-            for lbl in self.d_testi:
-                lbl.grid_remove()
-            return
-        etichetta, colore = RISCHIO[p.risk]
-        self.d_titolo.config(text=p.title)
-        self.d_rischio.config(text=etichetta, fg=colore)
-        chiede = domande(p)
-        for lbl, testo in zip(self.d_testi, (p.what, "Ti chiederà, in ordine: " + " › ".join(chiede) if chiede else "", p.note)):
-            lbl.config(text=testo)
-            lbl.grid() if testo else lbl.grid_remove()
-        extra = campo_extra(p)
-        if extra:
-            chiave, nome, suggerimento = extra
-            self.d_extra_nome.config(text=nome)
-            self.d_extra_campo.config(textvariable=self.campi[chiave])
-            self.d_extra_nota.config(text=suggerimento)
-            self.d_extra.grid()
-        else:
-            self.d_extra.grid_remove()
-        self.d_cmd.config(text="PS> " + self.testo(p, self.params()))
-        self.b_esegui.config(text="Esegui" if p.risk == "read" else "Esegui…")
-        self.stato("Doppio clic o Invio per eseguire. Password e token si scrivono nella finestra che si apre.")
-
-    def stato(self, testo):
-        self.stato_lbl.config(text=testo)
-
     # ── azioni ──
-    def argv(self, preset):
-        try:
-            return build_argv(preset.argv, self.params())
-        except LauncherError as e:
-            messagebox.showwarning("Manca un dato", str(e), parent=self.root)
-            return None
+    def chiedi(self, etichetta, suggerimento, iniziale):
+        return Chiedi(self, etichetta, suggerimento, iniziale).risultato
+
+    def raccogli(self, preset):
+        """Chiede i valori che il comando usa. False se chi ha fatto doppio clic ha annullato."""
+        for chiave, etichetta, suggerimento in da_chiedere(preset, self.params()):
+            valore = self.chiedi(etichetta, suggerimento, self.campi[chiave].get())
+            if valore is None:
+                return False
+            self.campi[chiave].set(valore.strip())
+        return True
 
     def esegui(self, _event=None):
         p = self.corrente()
-        argv = self.argv(p) if p else None
-        if argv is None:
+        if not p or not self.raccogli(p):
+            return "break"
+        try:
+            argv = build_argv(p.argv, self.params())
+        except LauncherError as e:
+            messagebox.showwarning("Valore non valido", str(e), parent=self.root)
             return "break"
         riga = ps_line(argv)
         if p.risk != "read":
             testo = f"{p.title}\n\n{AVVISO[p.risk]}"
+            if p.note:
+                testo += f"\n{p.note}"
             if p.risk == "destroy" and "keep" in segnaposti(p.argv) and not self.campi["keep"].get().strip():
                 testo += "\nNessun account da salvare: oltre al tuo utente non è protetto nessuno."
             if not messagebox.askokcancel("Eseguire?", f"{testo}\n\n{riga}", icon="warning",
@@ -612,17 +595,10 @@ class App:
             launch(argv)
         except OSError as e:
             messagebox.showerror("Il comando non parte", str(e), parent=self.root)
-            return "break"
-        self.stato(f"Avviato in una nuova finestra: {riga}")
         return "break"
 
-    def copia(self):
-        p = self.corrente()
-        argv = self.argv(p) if p else None
-        if argv is not None:
-            self.root.clipboard_clear()
-            self.root.clipboard_append(ps_line(argv))
-            self.stato(f"Copiato: {ps_line(argv)}")
+    def corrente(self):
+        return self.vis[self.sel] if self.vis else None
 
 
 def main():

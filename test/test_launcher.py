@@ -99,10 +99,10 @@ class CatalogTest(unittest.TestCase):
         for p in launcher.CATALOGO:
             self.assertEqual(launcher.ps_quote(p.argv[0]), p.argv[0], p.title)
 
-    def test_dry_runs_do_not_announce_questions_asked_only_when_running(self):
-        by_title = {p.title: p for p in launcher.CATALOGO}
-        self.assertNotIn("CONFIRM", launcher.domande(by_title["Anteprima della rimozione"]))
-        self.assertIn("CONFIRM", launcher.domande(by_title["Rimuovi lo studente"]))
+    def test_every_command_has_a_description_and_the_risky_ones_a_note_or_none(self):
+        for p in launcher.CATALOGO:
+            self.assertTrue(p.desc.strip(), f"{p.title}: manca la descrizione")
+            self.assertLessEqual(len(p.desc), 130, f"{p.title}: descrizione troppo lunga per la riga")
 
 
 class BuildTest(unittest.TestCase):
@@ -181,6 +181,28 @@ class ExtraFieldTest(unittest.TestCase):
     def test_no_field_when_the_command_needs_nothing_extra(self):
         self.assertIsNone(self.campo("Provisioning"))
         self.assertIsNone(self.campo("Gruppi di un utente"))
+
+
+class AskTest(unittest.TestCase):
+    def da_chiedere(self, title, params):
+        p = next(p for p in launcher.CATALOGO if p.title == title)
+        return [chiave for chiave, _, _ in launcher.da_chiedere(p, params)]
+
+    def test_username_and_team_are_asked_only_when_missing(self):
+        self.assertEqual(self.da_chiedere("Rimuovi lo studente", {}), ["user"])
+        self.assertEqual(self.da_chiedere("Rimuovi lo studente", {"user": "mario_rossi"}), [])
+        self.assertEqual(self.da_chiedere("Rimuovi da un solo team", {"user": " "}), ["user", "team"])
+
+    def test_changelist_workspace_and_account_list_are_asked_every_time(self):
+        # Il numero dell'ultima volta non deve partire da solo su una cancellazione.
+        for title, chiave in (("Cancella una changelist, anche di un altro utente", "change"),
+                              ("Cancella un workspace, anche di un altro utente", "client"),
+                              ("Rimuovi gli account orfani", "keep")):
+            self.assertEqual(self.da_chiedere(title, {chiave: "gia-compilato", "user": "x", "team": "y"}), [chiave])
+
+    def test_commands_with_nothing_to_fill_ask_nothing(self):
+        self.assertEqual(self.da_chiedere("Provisioning", {}), [])
+        self.assertEqual(self.da_chiedere("Info sul server", {}), [])
 
 
 class PowerShellLineTest(unittest.TestCase):
