@@ -6,10 +6,15 @@ Elenco cliccabile dei comandi di p4-infrastructure. Doppio clic su una riga (o
 Invio su quella evidenziata) e il comando parte in una finestra di PowerShell
 aperta nella cartella della repo.
 
-L'app non vede mai ciò che digiti lì dentro: password e token di Perforce e del
-Worker si scrivono nella finestra del comando, come sempre. Per questo la
-finestra resta aperta (-NoExit) e UTF-8 è già impostato: le due righe di
-sessione dell'elenco a mano non servono più.
+L'app non vede mai ciò che digiti lì dentro: la password di Perforce si scrive
+nella finestra del comando, come sempre. Per questo la finestra resta aperta
+(-NoExit) e UTF-8 è già impostato: le due righe di sessione dell'elenco a mano
+non servono più.
+
+Il token admin del Worker si inserisce una volta, all'apertura (o dalla testata):
+resta solo in memoria e lo ricevono, come variabile d'ambiente della loro
+finestra, i soli script che lo chiedono. Non è un controllo d'accesso all'app:
+serve a non digitarlo a ogni comando.
 
 Se il comando ha bisogno di un valore (username, team, numero di changelist,
 workspace, account da salvare) un piccolo dialogo lo chiede al doppio clic.
@@ -30,6 +35,7 @@ from pathlib import Path
 from tkinter import messagebox, ttk
 from typing import NamedTuple
 
+import naba_store
 import p4_common as p4c
 
 REPO = Path(__file__).resolve().parent.parent
@@ -259,12 +265,35 @@ def ps_line(argv):
     return " ".join(ps_quote(t) for t in argv)
 
 
-def launch(argv):
+# Gli script che chiedono il token admin (naba_store.get_admin_token): solo a loro lo si passa. Agli altri
+# comandi no: npx esegue pacchetti di terzi, e p4, prune e i test non ne hanno bisogno.
+SCRIPT_CON_TOKEN = {"scripts/perforce_provision.py", "scripts/perforce_cleanup.py",
+                    "scripts/kv_status.py", "scripts/export_p4_users.py"}
+STATUS_DI_PROVA = "verifica-accesso"
+
+
+def usa_token(preset):
+    return any(t in SCRIPT_CON_TOKEN for t in parole(preset.argv))
+
+
+def verifica_token(token):
+    """Il Worker accetta il token? Una lettura su uno status che non esiste: è autenticata (un token
+    sbagliato dà 401) ma l'elenco torna vuoto, quindi non passa nessun dato personale."""
+    try:
+        naba_store.fetch_users(token, status=STATUS_DI_PROVA)
+    except naba_store.StoreError as e:
+        raise LauncherError(str(e)) from e
+
+
+def launch(argv, token=None):
     """Apre una finestra di PowerShell nella repo, ci esegue il comando e la lascia aperta.
 
     Qui serve per forza una shell, a differenza dei comandi p4 degli script: valori
-    validati da check_p4_name e parole quotate da ps_quote, mai testo libero."""
+    validati da check_p4_name e parole quotate da ps_quote, mai testo libero. Il token, se c'è,
+    passa dall'ambiente della finestra e mai dalla riga di comando."""
     env = dict(os.environ, PYTHONUTF8="1")
+    if token:
+        env["NABA_ADMIN_TOKEN"] = token
     return subprocess.Popen(
         ["powershell.exe", "-NoLogo", "-NoExit", "-Command", ps_line(argv)],
         cwd=REPO, env=env, creationflags=CREATE_NEW_CONSOLE,
@@ -282,6 +311,7 @@ AREE = {
 ELENCO = {"--keep": "Account da salvare", "--exclude": "Account da non esportare"}
 ETICHETTE = {"user": "Username", "team": "Team", "change": "Numero della changelist", "client": "Workspace"}
 SUGGERIMENTI = {
+    "token": "Lo trovi nel Vaultwarden. Resta in memoria finché l'app è aperta e va solo ai comandi che lo usano.",
     "user": "l'account Perforce, ad esempio mario_rossi",
     "team": "il nome del team come lo scrive Perforce, ad esempio ProjectAlpha",
     "keep": "separati da virgola, ad esempio admin,servicebot; si può lasciare vuoto",
@@ -321,7 +351,7 @@ CAMPI = (("user", "Username"), ("team", "Team"))
 class Chiedi(tk.Toplevel):
     """Dialogo per un valore: etichetta, suggerimento e campo già compilato con l'ultimo valore."""
 
-    def __init__(self, app, etichetta, suggerimento, iniziale):
+    def __init__(self, app, etichetta, suggerimento, iniziale, nascosto=False, ok="Continua", annulla="Annulla"):
         super().__init__(app.root, bg=DEEP)
         self.risultato = None
         self.title(etichetta)
@@ -334,14 +364,15 @@ class Chiedi(tk.Toplevel):
         self.valore = tk.StringVar(value=iniziale)
         campo = tk.Entry(self, textvariable=self.valore, width=44, bg=BG, fg=INK, insertbackground=ACCENT,
                          selectbackground=ACCENT, selectforeground=BG, relief="flat", font=f["mono"],
-                         highlightthickness=1, highlightbackground=LINE, highlightcolor=ACCENT)
+                         highlightthickness=1, highlightbackground=LINE, highlightcolor=ACCENT,
+                         show="•" if nascosto else "")
         campo.pack(fill="x", padx=pad, ipady=px(5))
         riga = tk.Frame(self, bg=DEEP)
         riga.pack(fill="x", padx=pad, pady=pad)
-        tk.Button(riga, text="Continua", command=self._ok, bg=INK, fg=BG, activebackground=ACCENT,
+        tk.Button(riga, text=ok, command=self._ok, bg=INK, fg=BG, activebackground=ACCENT,
                   activeforeground=BG, relief="flat", bd=0, font=f["ui_b"], padx=px(22), pady=px(4),
                   cursor="hand2").pack(side="right")
-        tk.Button(riga, text="Annulla", command=self.destroy, bg=SEL, fg=INK, activebackground=LINE,
+        tk.Button(riga, text=annulla, command=self.destroy, bg=SEL, fg=INK, activebackground=LINE,
                   activeforeground=INK, relief="flat", bd=0, font=f["ui_b"], padx=px(16), pady=px(4),
                   cursor="hand2").pack(side="right", padx=(0, px(10)))
         self.bind("<Return>", lambda e: self._ok())
@@ -367,12 +398,15 @@ class App:
         self.vis, self.sel, self.filtro, self.area_filtro = [], 0, "all", None
         self.ricerca = tk.StringVar()
         self.campi = {k: tk.StringVar() for k in ("user", "team", "keep", "change", "client")}
+        self.token = None  # solo in memoria: mai su disco, mai nella riga di comando
+        self.token_ambiente = bool(os.environ.get("NABA_ADMIN_TOKEN", "").strip())
         self._font()
         self._costruisci()
         self.ricerca.trace_add("write", self._ricerca_cambiata)
         for var in self.campi.values():
             var.trace_add("write", lambda *_: self.aggiorna())
         self.aggiorna()
+        self.stato_accesso()
         self.cerca.focus_set()
 
     def params(self):
@@ -412,6 +446,9 @@ class App:
         testa = tk.Frame(root, bg=BG)
         testa.grid(row=0, sticky="ew", padx=m, pady=(px(18), 0))
         tk.Label(testa, text="p4-infrastructure", bg=BG, fg=DIM, font=f["mono"]).pack(side="left")
+        self.accesso = tk.Label(testa, bg=BG, font=f["ui"])
+        self.accesso.pack(side="left", padx=(px(22), 0))
+        self.accesso.bind("<Button-1>", lambda e: self.esci() if self.token else self.accedi())
         for chiave, etichetta in reversed(CAMPI):
             self._campo(testa, chiave, 16, DEEP).pack(side="right", padx=(px(6), 0), ipady=px(3))
             tk.Label(testa, text=etichetta, bg=BG, fg=DIM, font=f["ui"]).pack(side="right", padx=(px(14), 0))
@@ -560,8 +597,41 @@ class App:
         return "break"
 
     # ── azioni ──
-    def chiedi(self, etichetta, suggerimento, iniziale):
-        return Chiedi(self, etichetta, suggerimento, iniziale).risultato
+    def chiedi(self, etichetta, suggerimento, iniziale, **opzioni):
+        return Chiedi(self, etichetta, suggerimento, iniziale, **opzioni).risultato
+
+    def stato_accesso(self):
+        if self.token:
+            self.accesso.config(text="●  Token admin attivo · Esci", fg=RISCHIO["read"][1], cursor="hand2")
+        elif self.token_ambiente:
+            self.accesso.config(text="●  Token admin dall'ambiente", fg=DIM, cursor="arrow")
+        else:
+            self.accesso.config(text="○  Accedi con il token admin", fg=ACCENT, cursor="hand2")
+
+    def accedi(self):
+        """Chiede il token admin e lo verifica sul Worker. Vuoto o «Salta»: si lavora senza, e gli script
+        lo chiedono nella loro finestra."""
+        while True:
+            token = self.chiedi("Token admin del Worker", SUGGERIMENTI["token"], "", nascosto=True,
+                                ok="Entra", annulla="Salta")
+            if not (token or "").strip():
+                return
+            self.root.config(cursor="watch")
+            self.root.update_idletasks()
+            try:
+                verifica_token(token.strip())
+            except LauncherError as e:
+                messagebox.showwarning("Accesso non riuscito", str(e), parent=self.root)
+                continue
+            finally:
+                self.root.config(cursor="")
+            self.token = token.strip()
+            self.stato_accesso()
+            return
+
+    def esci(self):
+        self.token = None
+        self.stato_accesso()
 
     def raccogli(self, preset):
         """Chiede i valori che il comando usa. False se chi ha fatto doppio clic ha annullato."""
@@ -592,7 +662,7 @@ class App:
                                           default="cancel", parent=self.root):
                 return "break"
         try:
-            launch(argv)
+            launch(argv, self.token if usa_token(p) else None)
         except OSError as e:
             messagebox.showerror("Il comando non parte", str(e), parent=self.root)
         return "break"
@@ -607,7 +677,9 @@ def main():
     except (AttributeError, OSError):
         pass
     root = tk.Tk()
-    App(root)
+    app = App(root)
+    if not app.token_ambiente:
+        root.after(300, app.accedi)
     root.mainloop()
 
 

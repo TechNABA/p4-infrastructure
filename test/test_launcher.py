@@ -220,6 +220,46 @@ class PowerShellLineTest(unittest.TestCase):
         self.assertEqual(launcher.ps_quote("it's"), "'it''s'")
 
 
+class TokenTest(unittest.TestCase):
+    def test_token_goes_only_to_the_scripts_that_ask_for_it(self):
+        # Chi lo chiede: tutti e soli gli script che chiamano get_admin_token. Gli altri comandi (p4, npx che
+        # scarica pacchetti di terzi, prune, test) non devono riceverlo nell'ambiente.
+        chiedono = {f"scripts/{path.name}" for path in SCRIPTS.glob("*.py")
+                    if path.name != "naba_store.py" and "get_admin_token(" in path.read_text(encoding="utf-8")}
+        self.assertEqual(chiedono, launcher.SCRIPT_CON_TOKEN)
+
+    def test_which_commands_receive_it(self):
+        by_title = {p.title: p for p in launcher.CATALOGO}
+        for title in ("Provisioning", "Rimuovi lo studente", "Stato del KV", "Importa nel KV"):
+            self.assertTrue(launcher.usa_token(by_title[title]), title)
+        for title in ("Rimuovi gli account orfani", "Info sul server", "Pubblica il Worker",
+                      "Cambia il token admin del Worker", "Test degli script", "Test del Worker e del form"):
+            self.assertFalse(launcher.usa_token(by_title[title]), title)
+
+    def test_launch_hands_it_over_by_environment_never_on_the_command_line(self):
+        with mock.patch.dict(os.environ), mock.patch.object(launcher.subprocess, "Popen") as popen:
+            os.environ.pop("NABA_ADMIN_TOKEN", None)
+            launcher.launch(["python", "scripts/kv_status.py"], token="t0k3n-segreto")
+            args, kwargs = popen.call_args
+            self.assertEqual(kwargs["env"]["NABA_ADMIN_TOKEN"], "t0k3n-segreto")
+            self.assertNotIn("t0k3n-segreto", " ".join(args[0]))
+            launcher.launch(["python", "scripts/kv_status.py"])
+            self.assertNotIn("NABA_ADMIN_TOKEN", popen.call_args[1]["env"])
+
+    def test_login_asks_the_worker_without_pulling_personal_data(self):
+        # Lo status usato per il controllo non esiste: la lettura è autenticata ma l'elenco torna vuoto.
+        self.assertNotIn(launcher.STATUS_DI_PROVA, launcher.naba_store.VALID_STATUS)
+        with mock.patch.object(launcher.naba_store, "fetch_users", return_value=[]) as fetch:
+            launcher.verifica_token("tok")
+        fetch.assert_called_once_with("tok", status=launcher.STATUS_DI_PROVA)
+
+    def test_a_rejected_or_unreachable_worker_is_reported(self):
+        errore = launcher.naba_store.StoreError("token admin rifiutato (401). Verifica ...")
+        with mock.patch.object(launcher.naba_store, "fetch_users", side_effect=errore):
+            with self.assertRaisesRegex(launcher.LauncherError, "rifiutato"):
+                launcher.verifica_token("sbagliato")
+
+
 class LaunchTest(unittest.TestCase):
     def test_opens_a_console_in_the_repo_and_keeps_it_open(self):
         with mock.patch.object(launcher.subprocess, "Popen") as popen:
