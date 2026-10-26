@@ -58,6 +58,13 @@ class CatalogTest(unittest.TestCase):
             if "--dry-run" in p.argv:
                 self.assertEqual(p.risk, "read", f"{p.title}: un'anteprima non modifica niente")
 
+    def test_every_option_taking_the_account_list_has_a_field_label(self):
+        # Il campo compare solo per questi comandi e prende il nome dall'opzione.
+        for p in launcher.CATALOGO:
+            for voce in p.argv:
+                if isinstance(voce, tuple) and "{keep}" in voce:
+                    self.assertIn(voce[0], launcher.ELENCO, p.title)
+
     def test_titles_are_unique(self):
         titles = [p.title for p in launcher.CATALOGO]
         self.assertEqual(len(titles), len(set(titles)))

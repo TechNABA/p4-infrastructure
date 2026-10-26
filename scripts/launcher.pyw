@@ -104,7 +104,7 @@ CATALOGO = [
         "Rimozione", ["python", "scripts/perforce_prune.py"],
         "Rimuove gli account che non stanno in nessun gruppo con protezioni.",
         (*CONNESSIONE, ("CONFIRM", True)),
-        "Il tuo utente è sempre protetto. Service account e altri admin vanno in «Account da non toccare».",
+        "Il tuo utente è sempre protetto. Service account e altri admin vanno indicati in «Account da salvare».",
         [("Anteprima degli account orfani", ["--dry-run", ("--keep", "{keep}")], "read"),
          ("Rimuovi gli account orfani", [("--keep", "{keep}")], "destroy")]),
 
@@ -156,7 +156,7 @@ def domande(preset):
 
 # ── Costruzione del comando ─────────────────────────────────────
 MANCA = {"user": "lo username", "team": "il team"}
-NOME = {"user": "username", "team": "team", "keep": "account da non toccare"}
+NOME = {"user": "username", "team": "team", "keep": "account"}
 SEGNAPOSTI = {"{user}", "{team}", "{keep}"}
 PAROLA_SICURA = re.compile(r"^[A-Za-z0-9_./\\:-][A-Za-z0-9_./\\:@=+-]*$")
 
@@ -217,7 +217,9 @@ def launch(argv):
 BG, DEEP, SEL, LINE = "#000000", "#0d0d0d", "#262626", "#3a3a3a"
 INK, DIM, FAINT, ACCENT = "#f2f2f2", "#b0b0b0", "#808080", "#f5df74"
 FILTRI = (("all", "Tutti"), ("read", "Legge"), ("write", "Scrive"), ("destroy", "Cancella"))
-CAMPI = (("user", "Username"), ("team", "Team"), ("keep", "Account da non toccare"))
+CAMPI = (("user", "Username"), ("team", "Team"))
+# L'elenco di account compare nel dettaglio solo per i comandi che lo usano, col nome dell'opzione.
+ELENCO = {"--keep": "Account da salvare", "--exclude": "Account da non esportare"}
 
 
 class App:
@@ -226,7 +228,7 @@ class App:
         self.px = lambda n: round(n * root.winfo_fpixels("1i") / 96)
         self.vis, self.sel, self.filtro = [], 0, "all"
         self.ricerca = tk.StringVar()
-        self.campi = {k: tk.StringVar() for k, _ in CAMPI}
+        self.campi = {k: tk.StringVar() for k in ("user", "team", "keep")}
         self._font()
         self._costruisci()
         self.ricerca.trace_add("write", self._ricerca_cambiata)
@@ -246,6 +248,11 @@ class App:
         self.f = {"ui": (ui, 10), "ui_b": (ui, 10, "bold"), "titolo": (ui, 11, "bold"),
                   "piccolo": (ui, 9), "mono": (mono, 10), "mono_g": (mono, 13)}
 
+    def _campo(self, genitore, chiave, larghezza, fondo):
+        return tk.Entry(genitore, textvariable=self.campi[chiave], width=larghezza, bg=fondo, fg=INK,
+                        insertbackground=ACCENT, relief="flat", font=self.f["mono"], highlightthickness=1,
+                        highlightbackground=LINE, highlightcolor=ACCENT)
+
     def _costruisci(self):
         px, f, root = self.px, self.f, self.root
         root.title("p4-infrastructure")
@@ -260,10 +267,7 @@ class App:
         testa.grid(row=0, sticky="ew", padx=m, pady=(px(18), 0))
         tk.Label(testa, text="p4-infrastructure", bg=BG, fg=DIM, font=f["mono"]).pack(side="left")
         for chiave, etichetta in reversed(CAMPI):
-            e = tk.Entry(testa, textvariable=self.campi[chiave], width=16, bg=DEEP, fg=INK,
-                         insertbackground=ACCENT, relief="flat", font=f["mono"], highlightthickness=1,
-                         highlightbackground=LINE, highlightcolor=ACCENT)
-            e.pack(side="right", padx=(px(6), 0), ipady=px(3))
+            self._campo(testa, chiave, 16, DEEP).pack(side="right", padx=(px(6), 0), ipady=px(3))
             tk.Label(testa, text=etichetta, bg=BG, fg=DIM, font=f["ui"]).pack(side="right", padx=(px(14), 0))
 
         barra = tk.Frame(root, bg=DEEP, highlightthickness=1, highlightbackground=LINE)
@@ -327,8 +331,15 @@ class App:
             lbl.grid(row=riga, column=0, columnspan=2, sticky="w", padx=pad, pady=(px(4), 0))
             self.d_testi.append(lbl)
         d.bind("<Configure>", lambda e: [l.config(wraplength=e.width - 2 * pad) for l in self.d_testi])
+        self.d_elenco = tk.Frame(d, bg=DEEP)
+        self.d_elenco.grid(row=4, column=0, columnspan=2, sticky="w", padx=pad, pady=(px(12), 0))
+        self.d_elenco_nome = tk.Label(self.d_elenco, bg=DEEP, fg=INK, font=f["ui"])
+        self.d_elenco_nome.pack(side="left")
+        self._campo(self.d_elenco, "keep", 26, BG).pack(side="left", padx=px(10), ipady=px(3))
+        tk.Label(self.d_elenco, text="separati da virgola, ad esempio admin,servicebot", bg=DEEP, fg=FAINT,
+                 font=f["ui"]).pack(side="left")
         cmd = tk.Frame(d, bg=BG)
-        cmd.grid(row=4, column=0, columnspan=2, sticky="ew", padx=pad, pady=px(14))
+        cmd.grid(row=5, column=0, columnspan=2, sticky="ew", padx=pad, pady=px(14))
         cmd.columnconfigure(0, weight=1)
         self.d_cmd = tk.Label(cmd, bg=BG, fg=INK, font=f["mono"], anchor="w", justify="left",
                               padx=px(12), pady=px(10), wraplength=px(640))
@@ -440,6 +451,7 @@ class App:
             self.d_titolo.config(text="")
             self.d_rischio.config(text="")
             self.d_cmd.config(text="")
+            self.d_elenco.grid_remove()
             for lbl in self.d_testi:
                 lbl.grid_remove()
             return
@@ -450,6 +462,12 @@ class App:
         for lbl, testo in zip(self.d_testi, (p.what, "Ti chiederà, in ordine: " + " › ".join(chiede) if chiede else "", p.note)):
             lbl.config(text=testo)
             lbl.grid() if testo else lbl.grid_remove()
+        opzione = next((v[0] for v in p.argv if isinstance(v, tuple) and "{keep}" in v), None)
+        if opzione:
+            self.d_elenco_nome.config(text=ELENCO[opzione])
+            self.d_elenco.grid()
+        else:
+            self.d_elenco.grid_remove()
         self.d_cmd.config(text="PS> " + self.testo(p, self.params()))
         self.b_esegui.config(text="Esegui" if p.risk == "read" else "Esegui…")
         self.stato("Doppio clic o Invio per eseguire. Password e token si scrivono nella finestra che si apre.")
@@ -474,7 +492,7 @@ class App:
         if p.risk != "read":
             testo = f"{p.title}\n\n{AVVISO[p.risk]}"
             if p.risk == "destroy" and "{keep}" in parole(p.argv) and not self.campi["keep"].get().strip():
-                testo += "\nNessun account da non toccare: oltre al tuo utente non è protetto nessuno."
+                testo += "\nNessun account da salvare: oltre al tuo utente non è protetto nessuno."
             if not messagebox.askokcancel("Eseguire?", f"{testo}\n\n{riga}", icon="warning",
                                           default="cancel", parent=self.root):
                 return "break"
