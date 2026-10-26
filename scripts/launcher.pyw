@@ -48,7 +48,7 @@ class Preset(NamedTuple):
 
 
 RISCHIO = {
-    "read": ("legge", "#5fd3e6"),
+    "read": ("legge", "#7fd99a"),
     "write": ("scrive", "#f5df74"),
     "destroy": ("cancella", "#ff8793"),
 }
@@ -214,8 +214,8 @@ def launch(argv):
 
 
 # ── Finestra ────────────────────────────────────────────────────
-BG, DEEP, SEL, LINE = "#012456", "#00183d", "#11407f", "#1d4a8c"
-INK, DIM, FAINT, ACCENT = "#eef2f8", "#a9bddc", "#86a0c8", "#f5df74"
+BG, DEEP, SEL, LINE = "#000000", "#0d0d0d", "#262626", "#3a3a3a"
+INK, DIM, FAINT, ACCENT = "#f2f2f2", "#b0b0b0", "#808080", "#f5df74"
 FILTRI = (("all", "Tutti"), ("read", "Legge"), ("write", "Scrive"), ("destroy", "Cancella"))
 CAMPI = (("user", "Username"), ("team", "Team"), ("keep", "Account da non toccare"))
 
@@ -327,10 +327,10 @@ class App:
             lbl.grid(row=riga, column=0, columnspan=2, sticky="w", padx=pad, pady=(px(4), 0))
             self.d_testi.append(lbl)
         d.bind("<Configure>", lambda e: [l.config(wraplength=e.width - 2 * pad) for l in self.d_testi])
-        cmd = tk.Frame(d, bg="#000f27")
+        cmd = tk.Frame(d, bg=BG)
         cmd.grid(row=4, column=0, columnspan=2, sticky="ew", padx=pad, pady=px(14))
         cmd.columnconfigure(0, weight=1)
-        self.d_cmd = tk.Label(cmd, bg="#000f27", fg=INK, font=f["mono"], anchor="w", justify="left",
+        self.d_cmd = tk.Label(cmd, bg=BG, fg=INK, font=f["mono"], anchor="w", justify="left",
                               padx=px(12), pady=px(10), wraplength=px(640))
         self.d_cmd.grid(row=0, column=0, sticky="ew")
         self.b_copia = tk.Button(cmd, text="Copia", command=self.copia, bg=SEL, fg=INK, activebackground=LINE,
