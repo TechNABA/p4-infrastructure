@@ -51,6 +51,8 @@ CARTELLA = Path(sys.executable).parent if IN_ESEGUIBILE else REPO
 RUNNER = "p4-runner.exe"
 # L'icona viaggia dentro l'eseguibile (--add-data), estratta in _MEIPASS.
 ICONA = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) / "icona.ico"
+# La data di build la scrive GitHub Actions accanto all'icona: dopo un download i file hanno la data del download.
+COSTRUITO = ICONA.with_name("costruito.txt")
 CREATE_NEW_CONSOLE = getattr(subprocess, "CREATE_NEW_CONSOLE", 0x10)
 
 
@@ -321,8 +323,11 @@ def visibile(argv):
     return argv
 
 
-def momento_costruzione(file):
-    """Quando sono stati costruiti gli eseguibili: il più vecchio dei due, basta che uno sia rimasto indietro."""
+def momento_costruzione(file, scritto=None):
+    """Quando sono stati costruiti gli eseguibili: la data scritta dalla build, se c'è; altrimenti il più vecchio
+    dei due, basta che uno sia rimasto indietro."""
+    if scritto is not None and scritto.is_file():
+        return float(scritto.read_text().strip())
     tempi = [Path(f).stat().st_mtime for f in file if Path(f).is_file()]
     return min(tempi) if tempi else None
 
@@ -484,7 +489,7 @@ class App:
         self.campi = {k: tk.StringVar() for k in ("user", "team", "keep", "change", "client")}
         self.token = None  # solo in memoria: mai su disco, mai nella riga di comando
         self.token_ambiente = bool(os.environ.get("NABA_ADMIN_TOKEN", "").strip())
-        self.costruito = momento_costruzione([sys.executable, CARTELLA / RUNNER]) if IN_ESEGUIBILE else None
+        self.costruito = momento_costruzione([sys.executable, CARTELLA / RUNNER], COSTRUITO) if IN_ESEGUIBILE else None
         self._font()
         self._costruisci()
         self.ricerca.trace_add("write", self._ricerca_cambiata)

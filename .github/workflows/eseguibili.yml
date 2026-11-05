@@ -1,0 +1,41 @@
+# Costruisce i due eseguibili del launcher e li pubblica nella release «launcher»:
+# nessun PC deve installare Python o PyInstaller per averli.
+name: Eseguibili
+
+on:
+  push:
+    branches: [main]
+    paths: ["scripts/**", "requirements.txt", ".github/workflows/eseguibili.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Dipendenze
+        run: python -m pip install pyinstaller==6.22.3 -r requirements.txt
+      - name: Test
+        run: python -m unittest discover -s test
+      - name: Launcher
+        run: |
+          [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() | Set-Content -Encoding ascii "$env:RUNNER_TEMP\costruito.txt"
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --icon scripts/icona.ico --add-data "scripts/icona.ico;." --add-data "$env:RUNNER_TEMP\costruito.txt;." --name "P4 Infrastructure" --distpath dist scripts/launcher.pyw
+      - name: Runner
+        run: python -m PyInstaller --noconfirm --onefile --console --icon scripts/icona.ico --name p4-runner --distpath dist scripts/runner.py
+      - name: Zip
+        run: Compress-Archive -Path "dist\P4 Infrastructure.exe", "dist\p4-runner.exe" -DestinationPath p4-infrastructure.zip
+      - name: Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete launcher --cleanup-tag --yes || true
+          gh release create launcher p4-infrastructure.zip --target "$GITHUB_SHA" --title "Launcher" \
+            --notes "Eseguibili costruiti dal commit $GITHUB_SHA. Estrai lo zip e tieni i due file nella stessa cartella."
