@@ -368,6 +368,13 @@ class BuildDateTest(unittest.TestCase):
         self.assertEqual(launcher.momento_costruzione([gui, self.dir / "manca.exe"]), 5000)
         self.assertIsNone(launcher.momento_costruzione([self.dir / "manca.exe"]))
 
+    def test_the_date_written_by_the_build_wins_over_the_file_dates(self):
+        gui = self.crea("gui.exe", 5000)  # scaricato: la data del file è quella del download
+        scritto = self.dir / "costruito.txt"
+        scritto.write_text("4000\r\n")
+        self.assertEqual(launcher.momento_costruzione([gui], scritto), 4000)
+        self.assertEqual(launcher.momento_costruzione([gui], self.dir / "manca.txt"), 5000)
+
     def test_only_scripts_changed_after_the_build_are_reported(self):
         self.crea("nuovo.py", 6000)
         self.crea("vecchio.py", 4000)
