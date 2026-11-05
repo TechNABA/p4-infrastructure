@@ -79,14 +79,16 @@ npx wrangler@4.150.0 secret put ADMIN_TOKEN
 
 `scripts/launcher.pyw` is a small Windows app that lists every admin command, grouped by what it touches (the Perforce scripts, direct `p4` commands, the Worker). Double-click a row and the command opens in a PowerShell window. The Worker admin token is entered once and kept in memory only; it reaches only the four scripts that ask for it.
 
-It also builds into standalone executables, so the machine needs no Python:
+It also builds into standalone executables, so the machine needs no Python. GitHub Actions builds them on every push to `main` that touches `scripts/` and publishes them in the `launcher` release: download [`p4-infrastructure.zip`](https://github.com/TechNABA/p4-infrastructure/releases/download/launcher/p4-infrastructure.zip) and extract it. The executables are not signed, so Windows SmartScreen may ask for confirmation the first time.
+
+To build them locally instead, after `python -m pip install pyinstaller -r requirements.txt`:
 
 ```
 python -m PyInstaller --noconfirm --clean --onefile --windowed --icon scripts/icona.ico --add-data "scripts/icona.ico;." --name "P4 Infrastructure" --distpath dist scripts/launcher.pyw
 python -m PyInstaller --noconfirm --onefile --console --icon scripts/icona.ico --name p4-runner --distpath dist scripts/runner.py
 ```
 
-Keep the two files in the same folder: the launcher runs the scripts through `p4-runner.exe`. The tests and the Worker deploy need the repo and Node, so they are not offered in the executable; the `p4` commands need the Perforce client installed. `dist/`, `build/` and `*.spec` are git-ignored: the executables are rebuilt, not archived.
+Keep the two files in the same folder: the launcher runs the scripts through `p4-runner.exe`. The tests and the Worker deploy need the repo and Node, so they are not offered in the executable; the `p4` commands need the Perforce client installed. `dist/`, `build/` and `*.spec` are git-ignored: the executables are published in the release, not stored in the repository.
 
 The executables carry a copy of the scripts as they were when they were built, so they do not follow later fixes: the window title shows the build date, and a warning appears when a script in the repo is newer. On a machine with Python, open `scripts/launcher.pyw` instead: it always runs the current scripts.
 
