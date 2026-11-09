@@ -324,6 +324,59 @@ class P4AccessTest(unittest.TestCase):
         self.assertNotIn("s3greta", " ".join(args[0]))
 
 
+class ConfirmTest(unittest.TestCase):
+    def preset(self, title):
+        return next(p for p in launcher.CATALOGO if p.title == title)
+
+    def test_destroy_asks_to_retype_the_main_value(self):
+        params = {"user": " mario_rossi ", "team": "Alpha", "change": "123", "client": "ws"}
+        for title, atteso in (("Cancella una changelist, anche di un altro utente", ("Numero della changelist", "123")),
+                              ("Revert dei file di una changelist, anche di un altro utente",
+                               ("Numero della changelist", "123")),
+                              ("Cancella un workspace, anche di un altro utente", ("Workspace", "ws")),
+                              ("Rimuovi da un solo team", ("Username", "mario_rossi")),
+                              ("Cancella il depot del team", ("Team", "Alpha"))):
+            self.assertEqual(launcher.da_riscrivere(self.preset(title), params), atteso, title)
+
+    def test_nothing_to_retype_without_a_value_or_when_not_destroying(self):
+        self.assertIsNone(launcher.da_riscrivere(self.preset("Rimuovi gli account orfani"), {}))
+        self.assertIsNone(launcher.da_riscrivere(self.preset("Provisioning"), {}))
+        self.assertIsNone(launcher.da_riscrivere(self.preset("Sblocca i file di una changelist"), {"change": "1"}))
+
+    def test_values_from_the_header_are_shown_before_running(self):
+        p = self.preset("Rimuovi da un solo team")
+        self.assertEqual(launcher.valori_usati(p, {"user": "mario_rossi", "team": "Alpha"}),
+                         [("Username", "mario_rossi"), ("Team", "Alpha")])
+        self.assertEqual(launcher.valori_usati(self.preset("Rimuovi gli account orfani"), {"keep": ""}),
+                         [("Account da salvare", "nessuno")])
+        self.assertEqual(launcher.valori_usati(self.preset("Provisioning"), {}), [])
+
+
+class RememberAccessTest(unittest.TestCase):
+    def test_server_port_and_user_are_kept_but_never_the_password(self):
+        with tempfile.TemporaryDirectory() as d:
+            file = Path(d) / "sotto" / "accesso.json"
+            launcher.salva_accesso(file, {"server": " 10.0.0.5 ", "porta": "1666", "p4user": "admin",
+                                          "p4pass": "s3greta", "token": "t0k3n"})
+            self.assertNotIn("s3greta", file.read_text(encoding="utf-8"))
+            self.assertNotIn("t0k3n", file.read_text(encoding="utf-8"))
+            self.assertEqual(launcher.leggi_accesso(file), {"server": "10.0.0.5", "porta": "1666", "p4user": "admin"})
+
+    def test_a_missing_or_broken_file_is_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            file = Path(d) / "accesso.json"
+            self.assertEqual(launcher.leggi_accesso(file), {})
+            for contenuto in ("non json", "[1, 2]", '{"server": 5, "p4pass": "x"}'):
+                file.write_text(contenuto, encoding="utf-8")
+                self.assertEqual(launcher.leggi_accesso(file), {}, contenuto)
+
+    def test_a_failed_save_does_not_stop_the_login(self):
+        with tempfile.TemporaryDirectory() as d:
+            occupato = Path(d) / "file"
+            occupato.write_text("")
+            launcher.salva_accesso(occupato / "accesso.json", {"server": "x"})  # la cartella è un file
+
+
 class RunnerTest(unittest.TestCase):
     """runner.py è ciò che gira nell'eseguibile al posto di «python scripts/<nome>.py»."""
 
