@@ -93,8 +93,7 @@ class CatalogTest(unittest.TestCase):
         # Username e team stanno in testata; ogni altro valore ha il suo campo nel dettaglio.
         for p in launcher.CATALOGO:
             extra = launcher.segnaposti(p.argv) - {"user", "team"}
-            self.assertLessEqual(len(extra), 1, p.title)
-            self.assertEqual(launcher.campo_extra(p) is not None, bool(extra), p.title)
+            self.assertEqual({k for k, _, _ in launcher.campi_extra(p)}, extra, p.title)
 
     def test_titles_are_unique(self):
         titles = [p.title for p in launcher.CATALOGO]
@@ -171,22 +170,29 @@ class BuildTest(unittest.TestCase):
 
 
 class ExtraFieldTest(unittest.TestCase):
-    def campo(self, title):
-        return launcher.campo_extra(next(p for p in launcher.CATALOGO if p.title == title))
+    def campi(self, title):
+        return [c[:2] for c in launcher.campi_extra(next(p for p in launcher.CATALOGO if p.title == title))]
 
     def test_the_account_list_is_named_after_its_option(self):
-        self.assertEqual(self.campo("Rimuovi gli account orfani")[:2], ("keep", "Account da salvare"))
-        self.assertEqual(self.campo("Importa nel KV")[:2], ("keep", "Account da non esportare"))
+        self.assertEqual(self.campi("Rimuovi gli account orfani"), [("keep", "Account da salvare")])
+        self.assertEqual(self.campi("Importa nel KV"), [("keep", "Account da non esportare")])
 
     def test_changelist_and_workspace_have_their_own_field(self):
-        self.assertEqual(self.campo("Cancella una changelist, anche di un altro utente")[:2],
-                         ("change", "Numero della changelist"))
-        self.assertEqual(self.campo("Cancella un workspace, anche di un altro utente")[:2],
-                         ("client", "Workspace"))
+        self.assertEqual(self.campi("Cancella una changelist, anche di un altro utente"),
+                         [("change", "Numero della changelist")])
+        self.assertEqual(self.campi("Cancella un workspace, anche di un altro utente"), [("client", "Workspace")])
+
+    def test_the_changelist_revert_asks_for_changelist_and_workspace(self):
+        titolo = "Revert dei file di una changelist, anche di un altro utente"
+        self.assertEqual([k for k, _ in self.campi(titolo)], ["change", "client"])
+        p = next(p for p in launcher.CATALOGO if p.title == titolo)
+        self.assertEqual(launcher.build_argv(p.argv, {"change": "123", "client": "mario_ws"}),
+                         ["p4", "revert", "-C", "mario_ws", "-c", "123", "//..."])
+        self.assertEqual(p.risk, "destroy")
 
     def test_no_field_when_the_command_needs_nothing_extra(self):
-        self.assertIsNone(self.campo("Provisioning"))
-        self.assertIsNone(self.campo("Gruppi di un utente"))
+        self.assertEqual(self.campi("Provisioning"), [])
+        self.assertEqual(self.campi("Gruppi di un utente"), [])
 
 
 class AskTest(unittest.TestCase):
@@ -264,6 +270,58 @@ class TokenTest(unittest.TestCase):
         with mock.patch.object(launcher.naba_store, "fetch_users", side_effect=errore):
             with self.assertRaisesRegex(launcher.LauncherError, "rifiutato"):
                 launcher.verifica_token("sbagliato")
+
+
+class P4AccessTest(unittest.TestCase):
+    def test_server_and_port_become_p4port(self):
+        self.assertEqual(launcher.indirizzo(" 10.0.0.5 ", "1666"), "10.0.0.5:1666")
+        self.assertEqual(launcher.indirizzo("ssl:perforce.naba", "1667"), "ssl:perforce.naba:1667")
+        for server, porta in (("10.0.0.5:1666", "1666"), ("", "1666"), ("a b", "1666"), ("x;calc", "1666"),
+                              ("10.0.0.5", ""), ("10.0.0.5", "0"), ("10.0.0.5", "70000"), ("10.0.0.5", "16a")):
+            with self.assertRaises(launcher.LauncherError, msg=(server, porta)):
+                launcher.indirizzo(server, porta)
+
+    def test_all_empty_means_no_access_and_partial_is_refused(self):
+        self.assertIsNone(launcher.accesso_p4("", "1666", " ", ""))
+        with self.assertRaisesRegex(launcher.LauncherError, "compila"):
+            launcher.accesso_p4("10.0.0.5", "1666", "admin", "")
+
+    def test_password_goes_to_p4_login_on_stdin_never_on_the_command_line(self):
+        esito = types.SimpleNamespace(returncode=0, stdout="User admin logged in.", stderr="")
+        with mock.patch.object(launcher.subprocess, "run", return_value=esito) as run:
+            env = launcher.accesso_p4("10.0.0.5", "1666", "admin", "s3greta")
+        args, kwargs = run.call_args
+        self.assertEqual(args[0], ["p4", "-p", "10.0.0.5:1666", "-u", "admin", "login"])
+        self.assertEqual(kwargs["input"], "s3greta\n")
+        self.assertNotIn("s3greta", " ".join(args[0]))
+        self.assertEqual(env, {"P4PORT": "10.0.0.5:1666", "P4USER": "admin", "P4PASSWD": "s3greta"})
+
+    def test_a_refused_or_unreachable_server_is_reported(self):
+        rifiutato = types.SimpleNamespace(returncode=1, stdout="", stderr="Password invalid.")
+        with mock.patch.object(launcher.subprocess, "run", return_value=rifiutato):
+            with self.assertRaisesRegex(launcher.LauncherError, "Password invalid"):
+                launcher.verifica_p4("10.0.0.5:1666", "admin", "sbagliata")
+        with mock.patch.object(launcher.subprocess, "run", side_effect=launcher.subprocess.TimeoutExpired("p4", 30)):
+            with self.assertRaisesRegex(launcher.LauncherError, "non risponde"):
+                launcher.verifica_p4("10.0.0.5:1666", "admin", "x")
+        with mock.patch.object(launcher.subprocess, "run", side_effect=FileNotFoundError("p4")):
+            with self.assertRaisesRegex(launcher.LauncherError, "PATH"):
+                launcher.verifica_p4("10.0.0.5:1666", "admin", "x")
+
+    def test_only_perforce_and_p4_commands_receive_it(self):
+        by_title = {p.title: p for p in launcher.CATALOGO}
+        for title in ("Provisioning", "Rimuovi gli account orfani", "Info sul server", "Importa nel KV"):
+            self.assertTrue(launcher.usa_p4(by_title[title]), title)
+        for title in ("Stato del KV", "Pubblica il Worker", "Test degli script", "Test del Worker e del form"):
+            self.assertFalse(launcher.usa_p4(by_title[title]), title)
+
+    def test_launch_hands_it_over_by_environment(self):
+        p4 = {"P4PORT": "10.0.0.5:1666", "P4USER": "admin", "P4PASSWD": "s3greta"}
+        with mock.patch.object(launcher.subprocess, "Popen") as popen:
+            launcher.launch(["p4", "info"], p4=p4)
+        args, kwargs = popen.call_args
+        self.assertEqual({k: kwargs["env"][k] for k in p4}, p4)
+        self.assertNotIn("s3greta", " ".join(args[0]))
 
 
 class RunnerTest(unittest.TestCase):

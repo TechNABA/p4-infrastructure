@@ -6,15 +6,16 @@ Elenco cliccabile dei comandi di p4-infrastructure. Doppio clic su una riga (o
 Invio su quella evidenziata) e il comando parte in una finestra di PowerShell
 aperta nella cartella della repo.
 
-L'app non vede mai ciò che digiti lì dentro: la password di Perforce si scrive
-nella finestra del comando, come sempre. Per questo la finestra resta aperta
+L'app non vede mai ciò che digiti lì dentro: senza l'accesso a Perforce (sotto) la
+password si scrive nella finestra del comando, come sempre. Per questo la finestra resta aperta
 (-NoExit) e UTF-8 è già impostato: le due righe di sessione dell'elenco a mano
 non servono più.
 
 Il token admin del Worker si inserisce una volta, all'apertura (o dalla testata):
 resta solo in memoria e lo ricevono, come variabile d'ambiente della loro
 finestra, i soli script che lo chiedono. Non è un controllo d'accesso all'app:
-serve a non digitarlo a ogni comando.
+serve a non digitarlo a ogni comando. Lo stesso vale per server, utente e password di
+Perforce, se li inserisci: vanno ai soli comandi Perforce e p4 (P4PORT, P4USER, P4PASSWD).
 
 Se il comando ha bisogno di un valore (username, team, numero di changelist,
 workspace, account da salvare) un piccolo dialogo lo chiede al doppio clic.
@@ -171,10 +172,14 @@ CATALOGO = [
     *_p4("Changelist", "Cancella gli shelve di una changelist", ["p4", "shelve", "-d", "-f", "-c", "{change}"],
          "destroy", "Cancella i suoi file in shelve, anche di un altro utente.",
          "Chi ha una risoluzione in sospeso su quello shelve non potrà più unirne il contenuto."),
+    *_p4("Changelist", "Revert dei file di una changelist, anche di un altro utente",
+         ["p4", "revert", "-C", "{client}", "-c", "{change}", "//..."], "destroy",
+         "Annulla i file aperti nella changelist, così si può cancellare. Le modifiche non inviate vanno perse.",
+         "Serve un admin. Il workspace è quello dopo la @ in «Changelist pending di un utente»."),
     *_p4("Changelist", "Cancella una changelist, anche di un altro utente", ["p4", "change", "-d", "-f", "{change}"],
-         "destroy", "Cancella la changelist pending; con file aperti o shelve prima vanno tolti.",
-         "Con file aperti o in shelve prima servono il revert del workspace e la cancellazione degli shelve: "
-         "lo script di rimozione li fa da solo."),
+         "destroy", "Cancella la changelist pending; con file aperti o shelve prima fai revert e togli gli shelve.",
+         "Con file aperti prima serve «Revert dei file di una changelist», con file in shelve «Cancella gli "
+         "shelve di una changelist»: lo script di rimozione li fa da solo."),
 
     *_p4("Workspace", "Revert dei file aperti in un workspace", ["p4", "revert", "-C", "{client}", "//..."],
          "destroy", "Annulla i file aperti, anche di un altro utente; le modifiche non inviate vanno perse.",
@@ -302,6 +307,55 @@ def usa_token(preset):
     return any(t in SCRIPT_CON_TOKEN for t in parole(preset.argv))
 
 
+def usa_p4(preset):
+    """Server, utente e password dell'accesso vanno ai soli comandi che parlano con Perforce."""
+    return preset.area in ("Perforce", "p4") and not solo_sorgente(preset)
+
+
+SERVER = re.compile(r"(?:(?:ssl|tcp)[46]*:)?[A-Za-z0-9.-]+")
+CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
+
+def indirizzo(server, porta):
+    """P4PORT da IP (o nome) e porta, separati nel dialogo."""
+    server, porta = server.strip(), porta.strip()
+    if not SERVER.fullmatch(server):
+        raise LauncherError(f"Server non valido: {server!r}. Scrivi solo l'IP o il nome, ad esempio 10.0.0.5.")
+    if not porta.isdigit() or not 0 < int(porta) < 65536:
+        raise LauncherError(f"Porta non valida: {porta!r}. È un numero, di solito 1666.")
+    return f"{server}:{porta}"
+
+
+def verifica_p4(port, user, password):
+    """p4 login con la password su stdin, mai sulla riga di comando. Lascia un ticket su questa macchina,
+    che vale anche per i comandi p4 quando il server non accetta la password in P4PASSWD."""
+    env = {k: v for k, v in os.environ.items() if k != "P4PASSWD"}
+    try:
+        esito = subprocess.run(["p4", "-p", port, "-u", user, "login"], input=password + "\n", capture_output=True,
+                               text=True, env=env, timeout=30, creationflags=CREATE_NO_WINDOW)
+    except subprocess.TimeoutExpired as e:
+        raise LauncherError(f"Il server {port} non risponde.") from e
+    except OSError as e:
+        raise LauncherError(f"p4 non parte: è installato e nel PATH? ({e})") from e
+    if esito.returncode != 0:
+        raise LauncherError((esito.stderr or esito.stdout).strip() or f"Login su {port} rifiutato.")
+
+
+def accesso_p4(server, porta, utente, password):
+    """L'ambiente Perforce dell'accesso, o None se il server non è stato compilato (la porta ha un default)."""
+    if not (server.strip() or utente.strip() or password):
+        return None
+    if not (server.strip() and utente.strip() and password):
+        raise LauncherError("Per accedere a Perforce compila server, porta, utente e password, o lasciali tutti vuoti.")
+    port = indirizzo(server, porta)
+    try:
+        utente = p4c.check_p4_name(utente.strip(), "utente")
+    except p4c.P4Error as e:
+        raise LauncherError(str(e)) from e
+    verifica_p4(port, utente, password)
+    return {"P4PORT": port, "P4USER": utente, "P4PASSWD": password}
+
+
 def verifica_token(token):
     """Il Worker accetta il token? Una lettura su uno status che non esiste: è autenticata (un token
     sbagliato dà 401) ma l'elenco torna vuoto, quindi non passa nessun dato personale."""
@@ -357,15 +411,18 @@ def per_eseguibile(argv):
     return [str(runner), Path(argv[1]).stem, *argv[2:]]
 
 
-def launch(argv, token=None):
+def launch(argv, token=None, p4=None):
     """Apre una finestra di PowerShell nella repo, ci esegue il comando e la lascia aperta.
 
     Qui serve per forza una shell, a differenza dei comandi p4 degli script: valori
-    validati da check_p4_name e parole quotate da ps_quote, mai testo libero. Il token, se c'è,
-    passa dall'ambiente della finestra e mai dalla riga di comando."""
+    validati da check_p4_name e parole quotate da ps_quote, mai testo libero. Il token e
+    l'accesso a Perforce (P4PORT, P4USER, P4PASSWD), se ci sono, passano dall'ambiente della
+    finestra e mai dalla riga di comando."""
     env = dict(os.environ, PYTHONUTF8="1")
     if token:
         env["NABA_ADMIN_TOKEN"] = token
+    if p4:
+        env.update(p4)
     argv = per_eseguibile(argv)
     riga = ps_line(argv)
     if not PAROLA_SICURA.match(argv[0]):
@@ -379,7 +436,7 @@ def launch(argv, token=None):
 # ── Cosa chiedere al doppio clic ────────────────────────────────
 AREE = {
     "Perforce": "Gli script di provisioning, rimozione e import.",
-    "p4": "Comandi diretti del client: usano server e utente di questa macchina (p4 set) e un login già fatto.",
+    "p4": "Comandi diretti del client: usano il server dell'accesso o, senza, quello di questa macchina (p4 set).",
     "Worker": "Il KV e Cloudflare.",
 }
 
@@ -392,19 +449,22 @@ SUGGERIMENTI = {
     "team": "il nome del team come lo scrive Perforce, ad esempio ProjectAlpha",
     "keep": "separati da virgola, ad esempio admin,servicebot; si può lasciare vuoto",
     "change": "solo cifre; lo trovi con «Changelist pending di un utente»",
-    "client": "il nome esatto; lo trovi con «Workspace di un utente»",
+    "client": "il nome esatto: è dopo la @ in «Changelist pending di un utente», o in «Workspace di un utente»",
+    "server": "l'IP, ad esempio 10.0.0.5, senza la porta",
+    "porta": "di solito 1666",
+    "p4user": "il tuo account admin",
+    "p4pass": "resta in memoria e va solo ai comandi Perforce e p4",
 }
+NOTA_ACCESSO = ("Tutto facoltativo. Senza token gli script lo chiedono nella loro finestra; senza server "
+                "chiedono server, utente e password, e i comandi p4 usano quelli di questa macchina.")
 
 
-def campo_extra(preset):
-    """Il valore, oltre a username e team, che il comando chiede: (chiave, etichetta, suggerimento), o None."""
+def campi_extra(preset):
+    """I valori, oltre a username e team, che il comando chiede: [(chiave, etichetta, suggerimento)]."""
     for voce in preset.argv:
         if isinstance(voce, tuple) and "{keep}" in voce:
-            return "keep", ELENCO[voce[0]], SUGGERIMENTI["keep"]
-    for chiave in ("change", "client"):
-        if chiave in segnaposti(preset.argv):
-            return chiave, ETICHETTE[chiave], SUGGERIMENTI[chiave]
-    return None
+            return [("keep", ELENCO[voce[0]], SUGGERIMENTI["keep"])]
+    return [(k, ETICHETTE[k], SUGGERIMENTI[k]) for k in ("change", "client") if k in segnaposti(preset.argv)]
 
 
 def da_chiedere(preset, params):
@@ -413,8 +473,7 @@ def da_chiedere(preset, params):
     deve partire da solo su una cancellazione."""
     chieste = [(k, ETICHETTE[k], SUGGERIMENTI[k]) for k in ("user", "team")
                if k in segnaposti(preset.argv) and not (params.get(k) or "").strip()]
-    extra = campo_extra(preset)
-    return chieste + ([extra] if extra else [])
+    return chieste + campi_extra(preset)
 
 
 # ── Finestra ────────────────────────────────────────────────────
@@ -436,25 +495,35 @@ def barra_nera(finestra):
         pass
 
 
-class Chiedi(tk.Toplevel):
-    """Dialogo per un valore: etichetta, suggerimento e campo già compilato con l'ultimo valore."""
+class Modulo(tk.Toplevel):
+    """Dialogo con uno o più campi, ognuno con etichetta, suggerimento e valore iniziale.
+    risultato è {chiave: valore}, o None se annullato."""
 
-    def __init__(self, app, etichetta, suggerimento, iniziale, nascosto=False, ok="Continua", annulla="Annulla"):
+    def __init__(self, app, titolo, campi, nota="", ok="Continua", annulla="Annulla"):
         super().__init__(app.root, bg=DEEP)
         self.risultato = None
-        self.title(etichetta)
+        self.title(titolo)
         self.transient(app.root)
         self.resizable(False, False)
         px, f = app.px, app.f
         pad = px(22)
-        tk.Label(self, text=etichetta, bg=DEEP, fg=INK, font=f["titolo"]).pack(anchor="w", padx=pad, pady=(pad, 0))
-        tk.Label(self, text=suggerimento, bg=DEEP, fg=FAINT, font=f["ui"]).pack(anchor="w", padx=pad, pady=(px(2), px(12)))
-        self.valore = tk.StringVar(value=iniziale)
-        campo = tk.Entry(self, textvariable=self.valore, width=44, bg=BG, fg=INK, insertbackground=ACCENT,
-                         selectbackground=ACCENT, selectforeground=BG, relief="flat", font=f["mono"],
-                         highlightthickness=1, highlightbackground=LINE, highlightcolor=ACCENT,
-                         show="•" if nascosto else "")
-        campo.pack(fill="x", padx=pad, ipady=px(5))
+        tk.Label(self, text=titolo, bg=DEEP, fg=INK, font=f["titolo"]).pack(anchor="w", padx=pad, pady=(pad, 0))
+        if nota:
+            tk.Label(self, text=nota, bg=DEEP, fg=DIM, font=f["ui"], justify="left",
+                     wraplength=px(440)).pack(anchor="w", padx=pad, pady=(px(4), 0))
+        self.valori, primo = {}, None
+        for chiave, etichetta, suggerimento, iniziale, nascosto in campi:
+            tk.Label(self, text=etichetta, bg=DEEP, fg=INK, font=f["ui_b"]).pack(anchor="w", padx=pad, pady=(px(14), 0))
+            tk.Label(self, text=suggerimento, bg=DEEP, fg=FAINT, font=f["ui"], justify="left",
+                     wraplength=px(440)).pack(anchor="w", padx=pad, pady=(0, px(6)))
+            self.valori[chiave] = tk.StringVar(value=iniziale)
+            campo = tk.Entry(self, textvariable=self.valori[chiave], width=44, bg=BG, fg=INK, insertbackground=ACCENT,
+                             selectbackground=ACCENT, selectforeground=BG, relief="flat", font=f["mono"],
+                             highlightthickness=1, highlightbackground=LINE, highlightcolor=ACCENT,
+                             show="•" if nascosto else "")
+            campo.pack(fill="x", padx=pad, ipady=px(5))
+            primo = primo or campo
+        campo = primo
         riga = tk.Frame(self, bg=DEEP)
         riga.pack(fill="x", padx=pad, pady=pad)
         tk.Button(riga, text=ok, command=self._ok, bg=INK, fg=BG, activebackground=ACCENT,
@@ -470,13 +539,16 @@ class Chiedi(tk.Toplevel):
         barra_nera(self)
         self.update_idletasks()
         x = app.root.winfo_rootx() + (app.root.winfo_width() - self.winfo_width()) // 2
-        self.geometry(f"+{max(x, 0)}+{app.root.winfo_rooty() + px(140)}")
+        # Al centro della finestra ma dentro lo schermo: con più campi il dialogo è alto.
+        y = app.root.winfo_rooty() + (app.root.winfo_height() - self.winfo_height()) // 3
+        y = min(y, self.winfo_screenheight() - self.winfo_height() - px(60))
+        self.geometry(f"+{max(x, 0)}+{max(y, 0)}")
         self.wait_visibility()
         self.grab_set()
         self.wait_window()
 
     def _ok(self):
-        self.risultato = self.valore.get()
+        self.risultato = {k: v.get() for k, v in self.valori.items()}
         self.destroy()
 
 
@@ -488,6 +560,7 @@ class App:
         self.ricerca = tk.StringVar()
         self.campi = {k: tk.StringVar() for k in ("user", "team", "keep", "change", "client")}
         self.token = None  # solo in memoria: mai su disco, mai nella riga di comando
+        self.p4 = None     # P4PORT, P4USER, P4PASSWD dell'accesso: come il token, solo in memoria
         self.token_ambiente = bool(os.environ.get("NABA_ADMIN_TOKEN", "").strip())
         self.costruito = momento_costruzione([sys.executable, CARTELLA / RUNNER], COSTRUITO) if IN_ESEGUIBILE else None
         self._font()
@@ -544,7 +617,7 @@ class App:
         tk.Label(testa, text="p4-infrastructure", bg=BG, fg=DIM, font=f["mono"]).pack(side="left")
         self.accesso = tk.Label(testa, bg=BG, font=f["ui"])
         self.accesso.pack(side="left", padx=(px(22), 0))
-        self.accesso.bind("<Button-1>", lambda e: self.esci() if self.token else self.accedi())
+        self.accesso.bind("<Button-1>", lambda e: self.esci() if self.token or self.p4 else self.accedi())
         for chiave, etichetta in reversed(CAMPI):
             self._campo(testa, chiave, 16, DEEP).pack(side="right", padx=(px(6), 0), ipady=px(3))
             tk.Label(testa, text=etichetta, bg=BG, fg=DIM, font=f["ui"]).pack(side="right", padx=(px(14), 0))
@@ -643,7 +716,9 @@ class App:
 
     def disegna(self, params):
         t = self.lista
-        y = t.yview()[0]
+        # La riga in cima, non la frazione: con righe che vanno a capo, dopo il ridisegno la stessa
+        # frazione cade qualche riga più in là e la lista scatta.
+        cima = t.index("@0,0")
         t.config(state="normal")
         t.delete("1.0", "end")
         area = gruppo = None
@@ -669,7 +744,7 @@ class App:
                             "descrizione: cleanup, dry-run, licenza.", "vuoto")
         t.config(state="disabled")
         self.colora()
-        t.yview_moveto(y)
+        t.yview(cima)
 
     def colora(self):
         for i in range(len(self.vis)):
@@ -695,16 +770,17 @@ class App:
         return "break"
 
     # ── azioni ──
-    def chiedi(self, etichetta, suggerimento, iniziale, **opzioni):
-        return Chiedi(self, etichetta, suggerimento, iniziale, **opzioni).risultato
+    def modulo(self, titolo, campi, **opzioni):
+        return Modulo(self, titolo, campi, **opzioni).risultato
 
     def stato_accesso(self):
-        if self.token:
-            self.accesso.config(text="●  Token admin attivo · Esci", fg=RISCHIO["read"][1], cursor="hand2")
-        elif self.token_ambiente:
-            self.accesso.config(text="●  Token admin dall'ambiente", fg=DIM, cursor="arrow")
+        attivi = (["Token admin"] if self.token else ["Token admin dall'ambiente"] if self.token_ambiente else [])
+        if self.p4:
+            attivi.append(f"{self.p4['P4USER']}@{self.p4['P4PORT']}")
+        if self.token or self.p4:
+            self.accesso.config(text="●  " + " · ".join(attivi + ["Esci"]), fg=RISCHIO["read"][1], cursor="hand2")
         else:
-            self.accesso.config(text="○  Accedi con il token admin", fg=ACCENT, cursor="hand2")
+            self.accesso.config(text="○  " + " · ".join(attivi + ["Accedi"]), fg=ACCENT, cursor="hand2")
 
     def scripts_nuovi(self):
         """Gli script della repo cambiati dopo la costruzione, se l'eseguibile sta in dist/ dentro la repo."""
@@ -716,36 +792,50 @@ class App:
         self.avviso.config(text="▲  Eseguibile vecchio: ricostruiscilo" if self.scripts_nuovi() else "")
 
     def accedi(self):
-        """Chiede il token admin e lo verifica sul Worker. Vuoto o «Salta»: si lavora senza, e gli script
-        lo chiedono nella loro finestra."""
+        """Chiede token admin e accesso a Perforce e li verifica: il token sul Worker, il server con p4 login.
+        Vuoti o «Salta»: si lavora senza, e gli script li chiedono nella loro finestra."""
+        valori = {"porta": "1666"}
         while True:
-            token = self.chiedi("Token admin del Worker", SUGGERIMENTI["token"], "", nascosto=True,
-                                ok="Entra", annulla="Salta")
-            if not (token or "").strip():
+            campi = [] if self.token_ambiente else [
+                ("token", "Token admin del Worker", SUGGERIMENTI["token"], valori.get("token", ""), True)]
+            campi += [("server", "Server Perforce", SUGGERIMENTI["server"], valori.get("server", ""), False),
+                      ("porta", "Porta", SUGGERIMENTI["porta"], valori.get("porta", ""), False),
+                      ("p4user", "Utente Perforce", SUGGERIMENTI["p4user"], valori.get("p4user", ""), False),
+                      ("p4pass", "Password Perforce", SUGGERIMENTI["p4pass"], valori.get("p4pass", ""), True)]
+            risposta = self.modulo("Accesso", campi, nota=NOTA_ACCESSO, ok="Entra", annulla="Salta")
+            if risposta is None:
                 return
+            valori = risposta
+            token = risposta.get("token", "").strip()
             self.root.config(cursor="watch")
             self.root.update_idletasks()
             try:
-                verifica_token(token.strip())
+                if token:
+                    verifica_token(token)
+                p4 = accesso_p4(risposta["server"], risposta["porta"], risposta["p4user"], risposta["p4pass"])
             except LauncherError as e:
                 messagebox.showwarning("Accesso non riuscito", str(e), parent=self.root)
                 continue
             finally:
                 self.root.config(cursor="")
-            self.token = token.strip()
+            self.token = token or self.token
+            self.p4 = p4 or self.p4
             self.stato_accesso()
             return
 
     def esci(self):
-        self.token = None
+        self.token = self.p4 = None
         self.stato_accesso()
 
     def raccogli(self, preset):
-        """Chiede i valori che il comando usa. False se chi ha fatto doppio clic ha annullato."""
-        for chiave, etichetta, suggerimento in da_chiedere(preset, self.params()):
-            valore = self.chiedi(etichetta, suggerimento, self.campi[chiave].get())
-            if valore is None:
-                return False
+        """Chiede in un solo dialogo i valori che il comando usa. False se chi ha fatto doppio clic ha annullato."""
+        chieste = da_chiedere(preset, self.params())
+        if not chieste:
+            return True
+        valori = self.modulo(preset.title, [(k, e, s, self.campi[k].get(), False) for k, e, s in chieste])
+        if valori is None:
+            return False
+        for chiave, valore in valori.items():
             self.campi[chiave].set(valore.strip())
         return True
 
@@ -771,7 +861,7 @@ class App:
                                           default="cancel", parent=self.root):
                 return "break"
         try:
-            launch(argv, self.token if usa_token(p) else None)
+            launch(argv, self.token if usa_token(p) else None, self.p4 if usa_p4(p) else None)
         except (OSError, LauncherError) as e:
             messagebox.showerror("Il comando non parte", str(e), parent=self.root)
         return "break"
@@ -791,8 +881,7 @@ def main():
         pass
     root = tk.Tk()
     app = App(root)
-    if not app.token_ambiente:
-        root.after(300, app.accedi)
+    root.after(300, app.accedi)
     root.mainloop()
 
 
