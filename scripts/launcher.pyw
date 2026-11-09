@@ -32,6 +32,7 @@ opzioni, test/test_launcher.py ti dice quale riga è rimasta indietro.
 
 import ctypes
 import datetime
+import json
 import os
 import re
 import subprocess
@@ -453,7 +454,7 @@ SUGGERIMENTI = {
     "server": "l'IP, ad esempio 10.0.0.5, senza la porta",
     "porta": "di solito 1666",
     "p4user": "il tuo account admin",
-    "p4pass": "resta in memoria e va solo ai comandi Perforce e p4",
+    "p4pass": "resta solo in memoria e va solo ai comandi Perforce e p4; server e utente si ricordano",
 }
 NOTA_ACCESSO = ("Tutto facoltativo. Senza token gli script lo chiedono nella loro finestra; senza server "
                 "chiedono server, utente e password, e i comandi p4 usano quelli di questa macchina.")
@@ -476,6 +477,53 @@ def da_chiedere(preset, params):
     return chieste + campi_extra(preset)
 
 
+def valori_usati(preset, params):
+    """I valori che il comando usa, da mostrare in grande nella conferma: username e team arrivano dalla
+    testata senza che il dialogo li chieda, e qui si vedono prima di partire."""
+    usati = [(ETICHETTE[k], params[k].strip()) for k in ("user", "team", "change", "client")
+             if k in segnaposti(preset.argv)]
+    elenco = campi_extra(preset)
+    if elenco and elenco[0][0] == "keep":
+        usati.append((elenco[0][1], (params.get("keep") or "").strip() or "nessuno"))
+    return usati
+
+
+def da_riscrivere(preset, params):
+    """Per i comandi che cancellano, il valore da riscrivere per confermare: (etichetta, valore), o None se
+    il comando non ne usa (allora basta il bottone)."""
+    if preset.risk != "destroy":
+        return None
+    for k in ("change", "client", "user", "team"):
+        if k in segnaposti(preset.argv):
+            return ETICHETTE[k], params[k].strip()
+    return None
+
+
+# Server, porta e utente dell'ultimo accesso riuscito, per non riscriverli: la password no, mai su disco.
+FILE_ACCESSO = Path(os.environ.get("APPDATA") or Path.home()) / "p4-infrastructure" / "accesso.json"
+DA_RICORDARE = ("server", "porta", "p4user")
+
+
+def leggi_accesso(file):
+    """Ciò che è stato salvato, solo le chiavi note e solo testo. Un file mancante o rovinato vale vuoto."""
+    try:
+        dati = json.loads(file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(dati, dict):
+        return {}
+    return {k: dati[k] for k in DA_RICORDARE if isinstance(dati.get(k), str)}
+
+
+def salva_accesso(file, valori):
+    """Non riuscire a salvare non ferma l'accesso: la prossima volta si riscrive."""
+    try:
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(json.dumps({k: valori.get(k, "").strip() for k in DA_RICORDARE}), encoding="utf-8")
+    except OSError:
+        pass
+
+
 # ── Finestra ────────────────────────────────────────────────────
 BG, DEEP, SEL, LINE = "#000000", "#0d0d0d", "#262626", "#3a3a3a"
 INK, DIM, FAINT, ACCENT = "#f2f2f2", "#b0b0b0", "#808080", "#f5df74"
@@ -495,61 +543,139 @@ def barra_nera(finestra):
         pass
 
 
-class Modulo(tk.Toplevel):
-    """Dialogo con uno o più campi, ognuno con etichetta, suggerimento e valore iniziale.
-    risultato è {chiave: valore}, o None se annullato."""
+class Dialogo(tk.Toplevel):
+    """Base dei dialoghi: scuri come la finestra, modali, centrati e dentro lo schermo. Esc annulla."""
 
-    def __init__(self, app, titolo, campi, nota="", ok="Continua", annulla="Annulla"):
+    def __init__(self, app, titolo):
         super().__init__(app.root, bg=DEEP)
-        self.risultato = None
+        self.app, self.px, self.f = app, app.px, app.f
+        self.pad = self.px(22)
         self.title(titolo)
         self.transient(app.root)
         self.resizable(False, False)
-        px, f = app.px, app.f
-        pad = px(22)
-        tk.Label(self, text=titolo, bg=DEEP, fg=INK, font=f["titolo"]).pack(anchor="w", padx=pad, pady=(pad, 0))
-        if nota:
-            tk.Label(self, text=nota, bg=DEEP, fg=DIM, font=f["ui"], justify="left",
-                     wraplength=px(440)).pack(anchor="w", padx=pad, pady=(px(4), 0))
-        self.valori, primo = {}, None
-        for chiave, etichetta, suggerimento, iniziale, nascosto in campi:
-            tk.Label(self, text=etichetta, bg=DEEP, fg=INK, font=f["ui_b"]).pack(anchor="w", padx=pad, pady=(px(14), 0))
-            tk.Label(self, text=suggerimento, bg=DEEP, fg=FAINT, font=f["ui"], justify="left",
-                     wraplength=px(440)).pack(anchor="w", padx=pad, pady=(0, px(6)))
-            self.valori[chiave] = tk.StringVar(value=iniziale)
-            campo = tk.Entry(self, textvariable=self.valori[chiave], width=44, bg=BG, fg=INK, insertbackground=ACCENT,
-                             selectbackground=ACCENT, selectforeground=BG, relief="flat", font=f["mono"],
-                             highlightthickness=1, highlightbackground=LINE, highlightcolor=ACCENT,
-                             show="•" if nascosto else "")
-            campo.pack(fill="x", padx=pad, ipady=px(5))
-            primo = primo or campo
-        campo = primo
-        riga = tk.Frame(self, bg=DEEP)
-        riga.pack(fill="x", padx=pad, pady=pad)
-        tk.Button(riga, text=ok, command=self._ok, bg=INK, fg=BG, activebackground=ACCENT,
-                  activeforeground=BG, relief="flat", bd=0, font=f["ui_b"], padx=px(22), pady=px(4),
-                  cursor="hand2").pack(side="right")
-        tk.Button(riga, text=annulla, command=self.destroy, bg=SEL, fg=INK, activebackground=LINE,
-                  activeforeground=INK, relief="flat", bd=0, font=f["ui_b"], padx=px(16), pady=px(4),
-                  cursor="hand2").pack(side="right", padx=(0, px(10)))
-        self.bind("<Return>", lambda e: self._ok())
+        tk.Label(self, text=titolo, bg=DEEP, fg=INK, font=self.f["titolo"]).pack(anchor="w", padx=self.pad,
+                                                                                  pady=(self.pad, 0))
         self.bind("<Escape>", lambda e: self.destroy())
-        campo.focus_set()
-        campo.select_range(0, "end")
+
+    def _testo(self, testo, colore=DIM, sopra=4, font="ui"):
+        tk.Label(self, text=testo, bg=DEEP, fg=colore, font=self.f[font], justify="left",
+                 wraplength=self.px(440)).pack(anchor="w", padx=self.pad, pady=(self.px(sopra), 0))
+
+    def _campo(self, variabile, nascosto=False):
+        campo = tk.Entry(self, textvariable=variabile, width=44, bg=BG, fg=INK, insertbackground=ACCENT,
+                         selectbackground=ACCENT, selectforeground=BG, relief="flat", font=self.f["mono"],
+                         highlightthickness=1, highlightbackground=LINE, highlightcolor=ACCENT,
+                         show="•" if nascosto else "")
+        campo.pack(fill="x", padx=self.pad, pady=(self.px(6), 0), ipady=self.px(5))
+        return campo
+
+    def _bottoni(self, ok, annulla, comando, colore=INK):
+        """Il bottone che esegue a destra, Annulla accanto. Il bordo giallo mostra quale ha il fuoco."""
+        riga = tk.Frame(self, bg=DEEP)
+        riga.pack(fill="x", padx=self.pad, pady=self.pad)
+        stile = dict(relief="flat", bd=0, font=self.f["ui_b"], pady=self.px(4), cursor="hand2",
+                     highlightthickness=2, highlightcolor=ACCENT, highlightbackground=DEEP)
+        si = tk.Button(riga, text=ok, command=comando, bg=colore, fg=BG, activebackground=ACCENT,
+                       activeforeground=BG, disabledforeground=FAINT, padx=self.px(22), **stile)
+        si.pack(side="right")
+        no = tk.Button(riga, text=annulla, command=self.destroy, bg=SEL, fg=INK, activebackground=LINE,
+                       activeforeground=INK, padx=self.px(16), **stile)
+        no.pack(side="right", padx=(0, self.px(10)))
+        return si, no
+
+    def _mostra(self, fuoco):
+        fuoco.focus_set()
         barra_nera(self)
         self.update_idletasks()
-        x = app.root.winfo_rootx() + (app.root.winfo_width() - self.winfo_width()) // 2
+        root = self.app.root
+        x = root.winfo_rootx() + (root.winfo_width() - self.winfo_width()) // 2
         # Al centro della finestra ma dentro lo schermo: con più campi il dialogo è alto.
-        y = app.root.winfo_rooty() + (app.root.winfo_height() - self.winfo_height()) // 3
-        y = min(y, self.winfo_screenheight() - self.winfo_height() - px(60))
+        y = root.winfo_rooty() + (root.winfo_height() - self.winfo_height()) // 3
+        y = min(y, self.winfo_screenheight() - self.winfo_height() - self.px(60))
         self.geometry(f"+{max(x, 0)}+{max(y, 0)}")
         self.wait_visibility()
         self.grab_set()
         self.wait_window()
 
+
+class Modulo(Dialogo):
+    """Dialogo con uno o più campi, ognuno con etichetta, suggerimento e valore iniziale.
+    risultato è {chiave: valore}, o None se annullato."""
+
+    def __init__(self, app, titolo, campi, nota="", ok="Continua", annulla="Annulla"):
+        super().__init__(app, titolo)
+        self.risultato = None
+        if nota:
+            self._testo(nota)
+        self.valori, primo = {}, None
+        for chiave, etichetta, suggerimento, iniziale, nascosto in campi:
+            self._testo(etichetta, INK, 14, "ui_b")
+            self._testo(suggerimento, FAINT, 0)
+            self.valori[chiave] = tk.StringVar(value=iniziale)
+            campo = self._campo(self.valori[chiave], nascosto)
+            primo = primo or campo
+        self._bottoni(ok, annulla, self._ok)
+        self.bind("<Return>", lambda e: self._ok())
+        primo.select_range(0, "end")
+        self._mostra(primo)
+
     def _ok(self):
         self.risultato = {k: v.get() for k, v in self.valori.items()}
         self.destroy()
+
+
+class Conferma(Dialogo):
+    """Conferma di un comando che scrive o cancella: cosa fa, su quali valori, la riga che parte. Per
+    cancellare, il valore principale va riscritto. Invio esegue il bottone che ha il fuoco: all'inizio
+    Annulla, o il campo da riscrivere."""
+
+    def __init__(self, app, preset, testo, valori, riga, riscrivi):
+        super().__init__(app, preset.title)
+        self.ok = False
+        colore = RISCHIO[preset.risk][1]
+        avviso, _, nota = testo.partition("\n")
+        self._testo(avviso, colore)
+        if nota:
+            self._testo(nota, DIM, 2)
+        for etichetta, valore in valori:
+            r = tk.Frame(self, bg=DEEP)
+            r.pack(fill="x", padx=self.pad, pady=(self.px(10), 0))
+            tk.Label(r, text=etichetta, bg=DEEP, fg=FAINT, font=self.f["ui"], width=24, anchor="w").pack(side="left")
+            tk.Label(r, text=valore, bg=DEEP, fg=INK, font=self.f["mono_g"]).pack(side="left")
+        tk.Label(self, text=riga, bg=BG, fg=DIM, font=self.f["mono"], justify="left", anchor="w",
+                 wraplength=self.px(440), padx=self.px(10), pady=self.px(8)).pack(fill="x", padx=self.pad,
+                                                                                  pady=(self.px(14), 0))
+        self.attesa = riscrivi[1] if riscrivi else None
+        if riscrivi:
+            self._testo(f"Per confermare riscrivi {riscrivi[0].lower()}: {riscrivi[1]}", INK, 14)
+            self.scritto = tk.StringVar()
+            fuoco = self._campo(self.scritto)
+            self.scritto.trace_add("write", lambda *_: self._abilita())
+        self.si, no = self._bottoni("Esegui", "Annulla", self._ok, colore)
+        if riscrivi:
+            self._abilita()
+        else:
+            fuoco = no
+        self.bind("<Return>", self._invio)
+        self._mostra(fuoco)
+
+    def _pronto(self):
+        return self.attesa is None or self.scritto.get().strip() == self.attesa
+
+    def _abilita(self):
+        self.si.config(state="normal" if self._pronto() else "disabled",
+                       bg=RISCHIO["destroy"][1] if self._pronto() else SEL)
+
+    def _invio(self, evento):
+        if isinstance(evento.widget, tk.Button):
+            evento.widget.invoke()
+        elif self._pronto():
+            self._ok()
+
+    def _ok(self):
+        if self._pronto():
+            self.ok = True
+            self.destroy()
 
 
 class App:
@@ -643,6 +769,8 @@ class App:
         self.chip_area = {chiave: self._chip(chips, lambda k=chiave: self._filtra_area(k)) for chiave in AREE}
         self.avviso = tk.Label(chips, bg=BG, fg=ACCENT, font=f["ui"])
         self.avviso.pack(side="right")
+        self.esito = tk.Label(chips, bg=BG, fg=DIM, font=f["ui"])  # l'ultimo comando avviato
+        self.esito.pack(side="right", padx=(0, px(14)))
 
         corpo = tk.Frame(root, bg=BG)
         corpo.grid(row=3, sticky="nsew", padx=(m, px(8)), pady=(px(8), px(8)))
@@ -665,7 +793,7 @@ class App:
         t.tag_config("area_nota", font=f["ui"], foreground=FAINT)
         t.tag_config("gruppo", font=f["ui_b"], foreground=FAINT, lmargin1=px(16), spacing1=px(14), spacing3=px(2))
         # La descrizione, se va a capo, resta nella sua colonna: lmargin2 è dove inizia.
-        t.tag_config("rischio", font=f["ui_b"], lmargin1=px(16), lmargin2=px(560), spacing1=px(9))
+        t.tag_config("rischio", font=f["ui_b"], lmargin1=px(4), lmargin2=px(560), spacing1=px(9))
         for chiave, (_, colore) in RISCHIO.items():
             t.tag_config("c_" + chiave, foreground=colore)
         t.tag_config("titolo", font=f["titolo"], foreground=INK, lmargin2=px(560))
@@ -731,6 +859,7 @@ class App:
                 gruppo = p.group
                 t.insert("end", p.group + "\n", "gruppo")
             riga = f"r{i}"
+            t.insert("end", "▌ ", (riga, "rischio", f"m{i}"))  # la barra gialla della riga selezionata
             t.insert("end", RISCHIO[p.risk][0], (riga, "rischio", "c_" + p.risk))
             t.insert("end", "\t" + p.title, (riga, "titolo"))
             t.insert("end", "\t" + p.desc + "\n", (riga, "descrizione"))
@@ -749,6 +878,7 @@ class App:
     def colora(self):
         for i in range(len(self.vis)):
             self.lista.tag_config(f"r{i}", background=SEL if i == self.sel else BG)
+            self.lista.tag_config(f"m{i}", foreground=ACCENT if i == self.sel else BG)
 
     def scegli(self, i):
         self.sel = i
@@ -794,7 +924,7 @@ class App:
     def accedi(self):
         """Chiede token admin e accesso a Perforce e li verifica: il token sul Worker, il server con p4 login.
         Vuoti o «Salta»: si lavora senza, e gli script li chiedono nella loro finestra."""
-        valori = {"porta": "1666"}
+        valori = {"porta": "1666", **leggi_accesso(FILE_ACCESSO)}
         while True:
             campi = [] if self.token_ambiente else [
                 ("token", "Token admin del Worker", SUGGERIMENTI["token"], valori.get("token", ""), True)]
@@ -819,7 +949,9 @@ class App:
             finally:
                 self.root.config(cursor="")
             self.token = token or self.token
-            self.p4 = p4 or self.p4
+            if p4:
+                self.p4 = p4
+                salva_accesso(FILE_ACCESSO, risposta)
             self.stato_accesso()
             return
 
@@ -850,20 +982,22 @@ class App:
             return "break"
         riga = ps_line(visibile(argv))
         if p.risk != "read":
-            testo = f"{p.title}\n\n{AVVISO[p.risk]}"
+            testo = AVVISO[p.risk]
             if p.note:
                 testo += f"\n{p.note}"
             if self.scripts_nuovi():
                 testo += "\nL'eseguibile è più vecchio degli script nella repo: ricostruiscilo (comandi nel README)."
             if p.risk == "destroy" and "keep" in segnaposti(p.argv) and not self.campi["keep"].get().strip():
                 testo += "\nNessun account da salvare: oltre al tuo utente non è protetto nessuno."
-            if not messagebox.askokcancel("Eseguire?", f"{testo}\n\n{riga}", icon="warning",
-                                          default="cancel", parent=self.root):
+            params = self.params()
+            if not Conferma(self, p, testo, valori_usati(p, params), riga, da_riscrivere(p, params)).ok:
                 return "break"
         try:
             launch(argv, self.token if usa_token(p) else None, self.p4 if usa_p4(p) else None)
         except (OSError, LauncherError) as e:
             messagebox.showerror("Il comando non parte", str(e), parent=self.root)
+            return "break"
+        self.esito.config(text=f"Avviato alle {datetime.datetime.now():%H:%M}: {p.title}")
         return "break"
 
     def corrente(self):
