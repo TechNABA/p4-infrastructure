@@ -103,7 +103,13 @@ def ask_p4_connection() -> P4Client:
     Chiede server, utente e password, in quest'ordine, a ogni esecuzione.
     L'indirizzo cambia a seconda della rete da cui si lavora, quindi non ha un
     default: dalla VLAN del virtual studio il server va indicato per IP.
+    Se il launcher ha già fatto l'accesso, li passa nell'ambiente: non si chiede niente.
     """
+    port, user, password = (os.environ.get(k, "") for k in ("P4PORT", "P4USER", "P4PASSWD"))
+    if port.strip() and user.strip() and password:
+        print(f"Server {port.strip()}, utente {user.strip()}: dall'accesso del launcher.")
+        return P4Client(port.strip(), user.strip(), password)
+
     port = input("Server Perforce (host:porta): ").strip()
     if not port:
         print("ERRORE: serve l'indirizzo del server.")

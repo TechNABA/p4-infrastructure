@@ -77,7 +77,7 @@ npx wrangler@4.150.0 secret put ADMIN_TOKEN
 
 ## Admin launcher
 
-`scripts/launcher.pyw` is a small Windows app that lists every admin command, grouped by what it touches (the Perforce scripts, direct `p4` commands, the Worker). Double-click a row and the command opens in a PowerShell window. The Worker admin token is entered once and kept in memory only; it reaches only the four scripts that ask for it.
+`scripts/launcher.pyw` is a small Windows app that lists every admin command, grouped by what it touches (the Perforce scripts, direct `p4` commands, the Worker). Double-click a row and the command opens in a PowerShell window. The Worker admin token is entered once and kept in memory only; it reaches only the four scripts that ask for it. The Perforce server (IP and port), user and password can be entered the same way: they are checked with `p4 login`, kept in memory only, and passed as `P4PORT`, `P4USER` and `P4PASSWD` to the Perforce scripts and `p4` commands, so the scripts stop asking for them.
 
 It also builds into standalone executables, so the machine needs no Python. GitHub Actions builds them on every push to `main` that touches `scripts/` and publishes them in the `launcher` release: download [`p4-infrastructure.zip`](https://github.com/TechNABA/p4-infrastructure/releases/download/launcher/p4-infrastructure.zip) and extract it. The executables are not signed, so Windows SmartScreen may ask for confirmation the first time.
 

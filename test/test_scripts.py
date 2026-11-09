@@ -14,6 +14,7 @@ e le guardie che impediscono di cancellare l'account con cui sei connesso.
 
 import contextlib
 import io
+import os
 import subprocess
 import sys
 import unittest
@@ -403,6 +404,28 @@ class TestDestructive(unittest.TestCase):
 
 # ── Prompt di connessione ───────────────────────────────────────
 class TestAskConnection(unittest.TestCase):
+    def setUp(self):
+        # Le variabili P4 di questa macchina non devono cambiare l'esito dei test.
+        patcher = mock.patch.dict(os.environ)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for k in ("P4PORT", "P4USER", "P4PASSWD"):
+            os.environ.pop(k, None)
+
+    def test_dal_launcher_non_chiede_niente(self):
+        os.environ.update(P4PORT="10.0.0.5:1666", P4USER="admin", P4PASSWD="segreta")
+        with mock.patch("builtins.input", side_effect=AssertionError("non deve chiedere")), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            client = p4c.ask_p4_connection()
+        self.assertEqual((client.port, client.user, client.password), ("10.0.0.5:1666", "admin", "segreta"))
+        self.assertNotIn("segreta", out.getvalue())
+
+    def test_senza_password_nell_ambiente_chiede_tutto(self):
+        os.environ.update(P4PORT="10.0.0.5:1666", P4USER="admin")
+        with mock.patch("builtins.input", return_value=""):
+            with self.assertRaises(SystemExit):
+                p4c.ask_p4_connection()
+
     def test_server_vuoto_ferma_tutto(self):
         with mock.patch("builtins.input", return_value=""):
             with self.assertRaises(SystemExit):
