@@ -4,7 +4,8 @@ perforce_provision.py
 
 Scarica gli utenti dal Worker Cloudflare e, per ognuno con status 'pending':
   1. Prepara il team, una volta sola: protezione write del gruppo sul depot,
-     poi gruppo e depot locale (col nome del team) se non esistono. Un gruppo
+     poi gruppo e depot locale (col nome del team) se non esistono; un depot
+     appena creato riceve il .p4ignore standard di Unreal. Un gruppo
      o un depot già esistente senza quella protezione, come 'depot', non è di
      questo flusso: il team viene rifiutato e i suoi record vanno in 'error'
   2. Crea l'utente Perforce
@@ -29,7 +30,9 @@ processo e nella cronologia della shell.
 
 import argparse
 import getpass
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -49,6 +52,74 @@ from p4_common import P4Error
 #
 # La connessione viene creata in main() e usata dalle funzioni qui sotto.
 P4 = None
+
+# Il .p4ignore che ogni depot di team riceve alla creazione: è lo stesso già
+# presente nei depot esistenti (modello Unreal). Funziona solo sui client con
+# P4IGNORE=.p4ignore impostato.
+P4IGNORE = """\
+# Ignore project files in the root
+*.sln
+!*\\*.sln
+.vs
+*.suo
+*.opensdf
+*.sdf
+*.pdb
+*-Debug.dll
+*.xcodeproj
+.\\Makefile
+.\\CMakeLists.txt
+.\\.ue4dependencies
+
+ipch\\*
+
+# Derived data cache should never be checked in
+Engine\\DerivedDataCache\\*
+
+# Engine intermediates
+Engine\\Intermediate\\*
+Engine\\Plugins\\*\\Intermediate\\*
+
+# Intermediate folders created for various C# programs
+Engine\\Source\\Programs\\*\\obj\\*
+
+# Saved folders for programs should not be checked in
+Engine\\Programs\\*\\Saved\\*
+Engine\\Programs\\UnrealBuildTool\\*
+
+# Intermediate folders for programs should not be checked in
+Engine\\Programs\\*\\Intermediate\\*
+
+# Ignore any saved local files
+Engine\\Saved\\*
+
+# Ignore any build receipts
+Engine\\Build\\Receipts\\*
+
+# Ignore Unix backup files
+*~
+
+# Ignore Mac desktop services store files
+.DS_Store
+
+# Ignore crash reports
+crashinfo--*
+
+# Ignore linux project files
+*.user
+*.pro
+*.pri
+*.kdev4
+
+# Ignore project-specific files
+*\\Binaries\\*.pdb
+*\\Binaries\\*-Shipping.*
+*\\Build\\Receipts\\*
+*\\DerivedDataCache\\*
+*\\Intermediate\\*
+*\\Saved\\*
+*\\*.sln
+"""
 # ══════════════════════════════════════════════════════════════
 
 
@@ -224,7 +295,46 @@ def create_depot(depot_name: str, dry_run: bool = False) -> bool:
         return False
 
     print(f"    [creato] Depot '//{depot_name}/...'")
+    add_p4ignore(depot_name)
     return True
+
+
+def add_p4ignore(depot_name: str) -> bool:
+    """
+    Sottomette //<depot>/.p4ignore da un workspace temporaneo, poi lo cancella.
+    Un errore non ferma il provisioning: il depot funziona anche senza, e il
+    file si aggiunge a mano.
+    """
+    ws = f"{P4.user}_provision_p4ignore"
+    root = Path(tempfile.mkdtemp(prefix="p4ignore_"))
+    spec = (
+        f"Client:\t{ws}\n"
+        f"Owner:\t{P4.user}\n"
+        f"Root:\t{root}\n"
+        f"Options:\tallwrite noclobber nocompress unlocked nomodtime normdir\n"
+        f"LineEnd:\tlocal\n"
+        f"View:\n"
+        f"\t//{depot_name}/.p4ignore //{ws}/.p4ignore\n"
+    )
+    try:
+        (root / ".p4ignore").write_text(P4IGNORE, encoding="ascii")
+        steps = [
+            (("client", "-i"), spec),
+            (("-c", ws, "add", "-t", "text", str(root / ".p4ignore")), None),
+            (("-c", ws, "submit", "-d", f"Aggiunto .p4ignore al depot {depot_name}"), None),
+        ]
+        for args, stdin_text in steps:
+            result = P4.run(*args, stdin_text=stdin_text)
+            if result.returncode != 0:
+                print(f"    [ATTENZIONE] .p4ignore non aggiunto a '//{depot_name}/': "
+                      f"{result.stderr.strip()}")
+                P4.run("-c", ws, "revert", f"//{ws}/...")
+                return False
+        print(f"    [p4ignore] //{depot_name}/.p4ignore")
+        return True
+    finally:
+        P4.run("client", "-d", ws)
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def add_protection(group_name: str, depot_name: str, protect_spec: str,
