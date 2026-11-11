@@ -182,6 +182,7 @@
     background: transparent; border: 1px dashed var(--cobalt); border-radius: 10px; cursor: pointer;
   }
   .add-member-btn:hover { background: var(--cobalt-wash); }
+  .add-member-btn.hidden { display: none; }
 
   /* ── Summary: what will be created on the server ── */
   .summary {
@@ -297,7 +298,7 @@
         <div class="members-title" data-i18n="members_title">Compagni di gruppo</div>
         <div id="group-members"></div>
         <button type="button" class="add-member-btn" id="addMemberBtn" data-i18n="btn_add_member">Aggiungi un compagno</button>
-        <div class="hint" data-i18n="hint_group">Ognuno riceve il proprio account. Anno di corso e tesi qui sotto valgono per tutto il gruppo.</div>
+        <div class="hint" data-i18n="hint_group">Ognuno riceve il proprio account. Fino a 24 compagni per invio: un gruppo più grande si iscrive con più moduli.</div>
       </div>
     </section>
 
@@ -331,7 +332,7 @@
     </section>
 
     <!-- Summary -->
-    <div class="summary" aria-live="polite">
+    <div class="summary">
       <div class="summary-title" data-i18n="summary_title">Verrà richiesto l'accesso a</div>
       <div class="summary-depot" id="summary-depot">//ProjectAlpha/...</div>
       <ul class="summary-list" id="summary-list"></ul>
@@ -378,8 +379,9 @@
       label_mode: 'Chi stai iscrivendo?', seg_single: 'Solo me', seg_group: 'Me e il mio gruppo',
       members_title: 'Compagni di gruppo',
       btn_add_member: 'Aggiungi un compagno',
-      hint_group: 'Ognuno riceve il proprio account. Anno di corso e tesi qui sotto valgono per tutto il gruppo.',
+      hint_group: 'Ognuno riceve il proprio account. Fino a 24 compagni per invio: un gruppo più grande si iscrive con più moduli.',
       member_label: 'Compagno', member_remove: 'Rimuovi',
+      member_percorso: 'Anno o tesi', member_opt_select: 'Seleziona', member_opt_tesi: 'Tesi',
       member_nome: 'Nome', member_cognome: 'Cognome', member_email: 'Email',
       member_ph_nome: 'Nome', member_ph_cognome: 'Cognome', member_ph_email: 'email@studenti.naba.it',
       label_tesista: 'Stai lavorando alla tesi?', sublabel_tesista: 'Chi è in tesi non indica l\'anno di corso.',
@@ -392,6 +394,7 @@
       msg_error: 'Richiesta non inviata: {err}. Riprova tra qualche minuto.',
       msg_partial: 'Registrazione incompleta. Non registrati: {users}. Correggi i dati e reinvia: chi è già registrato non viene duplicato.',
       err_username: 'Nome e cognome vanno scritti in caratteri latini, perché da lì si ricava lo username: {names}',
+      err_duplicate: 'Lo stesso username compare più volte: {names}. Ogni persona va inserita una volta sola.',
       footer: 'Gestione utenti Perforce, NABA'
     },
     en: {
@@ -406,8 +409,9 @@
       label_mode: 'Who are you signing up?', seg_single: 'Just me', seg_group: 'Me and my group',
       members_title: 'Teammates',
       btn_add_member: 'Add a teammate',
-      hint_group: 'Everyone gets their own account. Year and thesis below apply to the whole group.',
+      hint_group: 'Everyone gets their own account. Up to 24 teammates per request: sign up a larger group with more forms.',
       member_label: 'Teammate', member_remove: 'Remove',
+      member_percorso: 'Year or thesis', member_opt_select: 'Select', member_opt_tesi: 'Thesis',
       member_nome: 'First name', member_cognome: 'Last name', member_email: 'Email',
       member_ph_nome: 'First name', member_ph_cognome: 'Last name', member_ph_email: 'email@studenti.naba.it',
       label_tesista: 'Are you working on your thesis?', sublabel_tesista: 'Thesis students don\'t pick a year.',
@@ -420,6 +424,7 @@
       msg_error: 'Request not sent: {err}. Try again in a few minutes.',
       msg_partial: 'Registration incomplete. Not registered: {users}. Fix the details and resubmit: users already registered will not be duplicated.',
       err_username: 'First and last name must be written in Latin characters, because the username is built from them: {names}',
+      err_duplicate: 'The same username appears more than once: {names}. Enter each person only once.',
       footer: 'Perforce user management, NABA'
     }
   };
@@ -474,15 +479,21 @@
   // Utilities
   // ══════════════════════════════════════
   function sanitize(str) {
-    return str.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+    return str.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
   }
+  // Maiuscola a inizio parola, anche dopo apostrofo o trattino. \b non
+  // conosce le accentate: con lui "maría" diventava "maríA".
   function capitalize(str) {
-    return str.trim().replace(/\b\w/g, c => c.toUpperCase());
+    return str.trim().replace(/(^|[^\p{L}\p{M}\p{N}])(\p{L})/gu, (m, sep, c) => sep + c.toUpperCase());
   }
   // Una sola regola per anteprima e invio: un nome senza lettere latine non
   // deve lasciare un '_' iniziale nello username inviato.
   function makeUsername(n, c) {
     return [sanitize(n), sanitize(c)].filter(Boolean).join('_');
+  }
+  // Come il worker: tronca a 64 caratteri. È lo username che verrà salvato.
+  function finalUsername(n, c) {
+    return makeUsername(n, c).slice(0, 64);
   }
   function makeFullName(n, c) {
     return [capitalize(n), capitalize(c)].filter(Boolean).join(' ');
@@ -497,13 +508,16 @@
     return mode === 'group' ? Array.from(document.querySelectorAll('.member-card')) : [];
   }
 
+  const MAX_MEMBERS = 24;  // il worker accetta 25 persone per invio
+
   // Le persone che questo invio iscrive: chi compila, più i compagni se il
-  // modulo è di gruppo. Gli input di ogni scheda sono nome, cognome, email.
+  // modulo è di gruppo. Gli input di ogni scheda sono nome, cognome, email;
+  // il select è il percorso del compagno ('1', '2', '3' o 'tesi').
   function people() {
-    const list = [{ n: nomeEl, c: cognomeEl, e: emailEl }];
+    const list = [{ n: nomeEl, c: cognomeEl, e: emailEl, percorso: null }];
     memberCards().forEach(card => {
       const [n, c, e] = card.querySelectorAll('input');
-      list.push({ n, c, e });
+      list.push({ n, c, e, percorso: card.querySelector('select') });
     });
     return list;
   }
@@ -523,7 +537,7 @@
       const li = document.createElement('li');
       const user = document.createElement('span');
       user.className = 'sum-user';
-      user.textContent = makeUsername(n, c) || '—';
+      user.textContent = finalUsername(n, c) || '—';
       const name = document.createElement('span');
       name.className = 'sum-name';
       name.textContent = makeFullName(n, c) || (i === 0 ? t('summary_you') : `${t('member_label')} ${i}`);
@@ -590,7 +604,20 @@
         <label for="m${id}-email" data-i18n="member_email">${tr.member_email}</label>
         <input type="email" id="m${id}-email" data-i18n-ph="member_ph_email" placeholder="${tr.member_ph_email}" autocomplete="off">
       </div>
+      <div class="field">
+        <label for="m${id}-percorso" data-i18n="member_percorso">${tr.member_percorso}</label>
+        <select id="m${id}-percorso">
+          <option value="" disabled data-i18n="member_opt_select">${tr.member_opt_select}</option>
+          <option value="1" data-i18n="opt_anno_1">${tr.opt_anno_1}</option>
+          <option value="2" data-i18n="opt_anno_2">${tr.opt_anno_2}</option>
+          <option value="3" data-i18n="opt_anno_3">${tr.opt_anno_3}</option>
+          <option value="tesi" data-i18n="member_opt_tesi">${tr.member_opt_tesi}</option>
+        </select>
+      </div>
     `;
+    // Parte dal percorso di chi compila, se l'ha già scelto: nel caso comune
+    // il gruppo è dello stesso anno e basta non toccarlo.
+    card.querySelector('select').value = tesistaEl.checked ? 'tesi' : annoEl.value;
     card.querySelector('.remove-member-btn').addEventListener('click', () => {
       card.remove();
       renumberMembers();
@@ -599,20 +626,18 @@
     groupMembers.appendChild(card);
     renumberMembers();
     renderSummary();
+    return card;
   }
 
   function renumberMembers() {
-    document.querySelectorAll('.member-card').forEach((card, i) => {
+    const cards = document.querySelectorAll('.member-card');
+    cards.forEach((card, i) => {
       card.querySelector('.member-number').textContent = `${t('member_label')} ${i + 1}`;
     });
+    addMemberBtn.classList.toggle('hidden', cards.length >= MAX_MEMBERS);
   }
 
-  addMemberBtn.addEventListener('click', () => {
-    addMember();
-    const cards = document.querySelectorAll('.member-card');
-    const last = cards[cards.length - 1];
-    if (last && last.querySelector) last.querySelector('input').focus?.();
-  });
+  addMemberBtn.addEventListener('click', () => addMember().querySelector('input').focus());
 
   // ══════════════════════════════════════
   // Validation
@@ -652,12 +677,33 @@
       if (!n.value.trim()) { n.classList.add('error'); valid = false; } else n.classList.remove('error');
       if (!c.value.trim()) { c.classList.add('error'); valid = false; } else c.classList.remove('error');
       if (!RE_EMAIL.test(e.value.trim())) { e.classList.add('error'); valid = false; } else e.classList.remove('error');
+      const p = card.querySelector('select');
+      if (!p.value) { p.classList.add('error'); valid = false; } else p.classList.remove('error');
       checkUsername(n, c);
+    });
+
+    // Due persone con lo stesso username nello stesso invio: il worker salva
+    // la prima e dà la seconda per già registrata, senza errore. Si ferma qui.
+    const seen = new Map();
+    const dupNames = new Set();
+    people().forEach(p => {
+      const u = finalUsername(p.n.value.trim(), p.c.value.trim()).toLowerCase();
+      if (!u) return;
+      if (seen.has(u)) {
+        [p, seen.get(u)].forEach(q => { q.n.classList.add('error'); q.c.classList.add('error'); });
+        dupNames.add(u);
+        valid = false;
+      } else {
+        seen.set(u, p);
+      }
     });
 
     if (badNames.length) {
       statusMsg.className = 'status-message error';
       statusText.textContent = t('err_username').replace('{names}', () => badNames.join(', '));
+    } else if (dupNames.size) {
+      statusMsg.className = 'status-message error';
+      statusText.textContent = t('err_duplicate').replace('{names}', () => [...dupNames].join(', '));
     }
     return valid;
   }
@@ -679,19 +725,19 @@
     statusMsg.className = 'status-message';
     if (!validateForm()) return;
 
-    // Tesi e anno di corso di chi compila valgono per tutto il gruppo.
-    const isTesista = tesistaEl.checked;
+    // Chi compila usa interruttore e anno; ogni compagno il proprio select.
     const team = teamEl.value.trim();
     const allUsers = people().map(p => {
       const n = p.n.value.trim(), c = p.c.value.trim();
+      const percorso = p.percorso ? p.percorso.value : (tesistaEl.checked ? 'tesi' : annoEl.value);
       return {
         timestamp: new Date().toISOString(),
         username: makeUsername(n, c),
-        full_name: capitalize(n) + ' ' + capitalize(c),
+        full_name: makeFullName(n, c),
         email: p.e.value.trim().toLowerCase(),
         team,
-        tesista: isTesista ? 'yes' : 'no',
-        anno_corso: isTesista ? '' : annoEl.value,
+        tesista: percorso === 'tesi' ? 'yes' : 'no',
+        anno_corso: percorso === 'tesi' ? '' : percorso,
         status: 'pending'
       };
     });

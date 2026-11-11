@@ -16,7 +16,7 @@ This system turns that work into a form submission and a single command, and kee
 
 ## What it does
 
-**Collects registrations.** A static web form handles both individual students and thesis groups, validates input on the client and again on the server, and supports Italian and English. Group submissions arrive as one batch rather than as separate races against each other.
+**Collects registrations.** A static web form handles both individual students and whole groups, validates input on the client and again on the server, and supports Italian and English. Group submissions arrive as one batch rather than as separate races against each other.
 
 **Provisions accounts.** One command reads the pending registrations and creates the version control users, the group for each team, the team's storage area, and the permission entry that scopes each group to its own area and nothing else. Every step is idempotent: re-running it skips what already exists rather than duplicating or failing. A group or storage area that already exists without the team's permission entry is refused rather than taken over, and records left in error are retried with `--retry-errors`.
 
