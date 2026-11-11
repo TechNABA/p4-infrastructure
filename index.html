@@ -310,25 +310,6 @@
         <input type="text" id="team" data-i18n-ph="ph_team" placeholder="es. ProjectAlpha" required>
         <div class="error-msg" id="team-error" data-i18n="err_team">Solo lettere, cifre, punto, trattino e underscore, senza spazi, non solo cifre e senza "..." (es. ProjectAlpha)</div>
       </div>
-
-      <!-- Registration type: singolo / di gruppo -->
-      <div class="toggle-container" style="padding-bottom:6px">
-        <div>
-          <div class="toggle-label-text" data-i18n="label_mode">Tipo di iscrizione</div>
-          <div class="toggle-sublabel" data-i18n="sublabel_mode">Di gruppo: iscrivi anche i tuoi compagni, ognuno con il proprio account</div>
-        </div>
-      </div>
-      <div class="segmented-control" id="mode-segmented">
-        <button type="button" class="seg-btn active" data-value="single" data-i18n="seg_single">Singolo</button>
-        <button type="button" class="seg-btn" data-value="group" data-i18n="seg_group">Di gruppo</button>
-      </div>
-
-      <!-- Group members (visible when group) -->
-      <div class="conditional-field" id="group-container">
-        <div class="group-members-container" id="group-members"></div>
-        <button type="button" class="add-member-btn" id="addMemberBtn" data-i18n="btn_add_member">+ Aggiungi membro del gruppo</button>
-        <div class="hint" data-i18n="hint_group">Fino a 24 membri per invio: un gruppo più grande si iscrive con più moduli.</div>
-      </div>
     </div>
 
     <!-- Academic -->
@@ -360,6 +341,29 @@
           </select>
           <div class="error-msg" id="anno-error" data-i18n="err_anno">Seleziona l'anno di corso</div>
         </div>
+      </div>
+    </div>
+
+    <!-- Registration type: singolo / di gruppo. In fondo: l'anno di chi
+         compila è già scelto, e i menu dei compagni partono da lì. -->
+    <div class="form-section">
+      <div class="section-label" data-i18n="section_mode">Iscrizione</div>
+      <div class="toggle-container" style="padding-top:0; padding-bottom:6px">
+        <div>
+          <div class="toggle-label-text" data-i18n="label_mode">Tipo di iscrizione</div>
+          <div class="toggle-sublabel" data-i18n="sublabel_mode">Di gruppo: iscrivi anche i tuoi compagni, ognuno con il proprio account</div>
+        </div>
+      </div>
+      <div class="segmented-control" id="mode-segmented">
+        <button type="button" class="seg-btn active" data-value="single" data-i18n="seg_single">Singolo</button>
+        <button type="button" class="seg-btn" data-value="group" data-i18n="seg_group">Di gruppo</button>
+      </div>
+
+      <!-- Group members (visible when group) -->
+      <div class="conditional-field" id="group-container">
+        <div class="group-members-container" id="group-members"></div>
+        <button type="button" class="add-member-btn" id="addMemberBtn" data-i18n="btn_add_member">+ Aggiungi membro del gruppo</button>
+        <div class="hint" data-i18n="hint_group">Fino a 24 membri per invio: un gruppo più grande si iscrive con più moduli.</div>
       </div>
     </div>
 
@@ -400,6 +404,7 @@
       label_email: 'Email', ph_email: 'mario.rossi@studenti.naba.it', err_email: 'Inserisci un indirizzo email valido',
       section_project: 'Progetto',
       label_team: 'Nome del team / progetto', ph_team: 'es. ProjectAlpha', err_team: 'Solo lettere, cifre, punto, trattino e underscore, senza spazi, non solo cifre e senza "..." (es. ProjectAlpha)',
+      section_mode: 'Iscrizione',
       label_mode: 'Tipo di iscrizione',
       sublabel_mode: 'Di gruppo: iscrivi anche i tuoi compagni, ognuno con il proprio account',
       seg_single: 'Singolo', seg_group: 'Di gruppo',
@@ -432,6 +437,7 @@
       label_email: 'Email', ph_email: 'john.doe@studenti.naba.it', err_email: 'Enter a valid email address',
       section_project: 'Project',
       label_team: 'Team / project name', ph_team: 'e.g. ProjectAlpha', err_team: 'Letters, digits, dot, dash and underscore only, no spaces, not digits only and no "..." (e.g. ProjectAlpha)',
+      section_mode: 'Registration',
       label_mode: 'Registration type',
       sublabel_mode: 'Group: sign up your teammates too, each with their own account',
       seg_single: 'Individual', seg_group: 'Group',
