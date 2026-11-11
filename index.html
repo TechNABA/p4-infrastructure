@@ -598,7 +598,23 @@
     updateVisibility();
   }
 
-  tesistaEl.addEventListener('change', updateVisibility);
+  // Il percorso di chi compila: '1', '2', '3', 'tesi', o '' se non ancora scelto.
+  function ownPercorso() {
+    return tesistaEl.checked ? 'tesi' : annoEl.value;
+  }
+
+  // Di solito i compagni si aggiungono prima di scegliere il proprio anno,
+  // che sta più in basso: i loro menu ancora vuoti lo ricevono appena c'è.
+  // Quelli già scelti non si toccano.
+  function fillEmptyMemberPercorso() {
+    const value = ownPercorso();
+    if (!value) return;
+    document.querySelectorAll('.member-card select').forEach(s => {
+      if (!s.value) s.value = value;
+    });
+  }
+
+  tesistaEl.addEventListener('change', () => { updateVisibility(); fillEmptyMemberPercorso(); });
   document.querySelectorAll('#mode-segmented .seg-btn').forEach(btn => {
     btn.addEventListener('click', () => setMode(btn.getAttribute('data-value')));
   });
@@ -653,7 +669,7 @@
     `;
     // Parte dal percorso di chi compila, se l'ha già scelto: nel caso comune
     // il gruppo è dello stesso anno e basta non toccarlo.
-    card.querySelector('select').value = tesistaEl.checked ? 'tesi' : annoEl.value;
+    card.querySelector('select').value = ownPercorso();
     card.addEventListener('input', () => updateMemberPreview(card));
     card.querySelector('.remove-member-btn').addEventListener('click', () => removeMember(card));
     groupMembers.appendChild(card);
@@ -755,7 +771,7 @@
       if (document.getElementById(errId)) showError(errId, false);
     });
   });
-  annoEl.addEventListener('change', () => showError('anno-error', false));
+  annoEl.addEventListener('change', () => { showError('anno-error', false); fillEmptyMemberPercorso(); });
 
   // ══════════════════════════════════════
   // Submit
