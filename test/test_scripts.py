@@ -869,8 +869,40 @@ class TestSetupTeam(unittest.TestCase):
         server = FakeServer()
         ok, _ = self.setup(server, "Alfa")
         self.assertTrue(ok)
-        self.assertEqual(server.writes(), [("protect", "-i"), ("group", "-i"), ("depot", "-i")])
+        self.assertEqual(server.writes(), [("protect", "-i"), ("group", "-i"), ("depot", "-i"),
+                                           ("client", "-i")])
         self.assertIn(team_line("Alfa"), server.protections)
+
+    def test_depot_nuovo_riceve_il_p4ignore_e_il_workspace_sparisce(self):
+        server = FakeServer()
+        ok, out = self.setup(server, "Alfa")
+        self.assertTrue(ok)
+        calls = [c[0] for c in server.calls]
+        ws = "admin_provision_p4ignore"
+        client_spec = next(s for a, s in server.calls if a == ("client", "-i"))
+        self.assertIn(f"\t//Alfa/.p4ignore //{ws}/.p4ignore\n", client_spec)
+        self.assertTrue(any(a[:3] == ("-c", ws, "add") and a[-1].endswith(".p4ignore")
+                            for a in calls))
+        self.assertTrue(any(a[:3] == ("-c", ws, "submit") for a in calls))
+        self.assertEqual(calls[-1], ("client", "-d", ws))
+        self.assertIn("[p4ignore] //Alfa/.p4ignore", out)
+
+    def test_p4ignore_fallito_non_blocca_il_team(self):
+        # Il depot funziona anche senza .p4ignore: si avvisa, si annulla l'add
+        # e si cancella comunque il workspace temporaneo.
+        server = FakeServer(fail={"-c"})
+        ok, out = self.setup(server, "Alfa")
+        self.assertTrue(ok)
+        self.assertIn("[ATTENZIONE] .p4ignore non aggiunto", out)
+        calls = [c[0] for c in server.calls]
+        self.assertIn(("-c", "admin_provision_p4ignore", "revert", "//admin_provision_p4ignore/..."),
+                      calls)
+        self.assertEqual(calls[-1], ("client", "-d", "admin_provision_p4ignore"))
+
+    def test_depot_esistente_non_riceve_il_p4ignore(self):
+        server = FakeServer(depots=["Alfa"], protections=PROTECT_SPEC + team_line("Alfa"))
+        self.setup(server, "Alfa")
+        self.assertNotIn(("client", "-i"), [c[0] for c in server.calls])
 
     def test_depot_esistente_non_nostro_viene_rifiutato(self):
         # Il team "depot" non deve ottenere la scrittura sul depot di default.
