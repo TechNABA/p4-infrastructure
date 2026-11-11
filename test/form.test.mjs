@@ -40,7 +40,7 @@ function loadForm({ status = 200, body, members = [] }) {
     getElementById: (id) => (byId[id] ??= fakeEl()),
     querySelectorAll: (sel) =>
       sel === ".member-card" ? cards :
-      sel === "#thesis-segmented .seg-btn" ? [groupButton] : [],
+      sel === "#mode-segmented .seg-btn" ? [groupButton] : [],
     createElement: () => fakeEl(),
   };
   const sent = [];
@@ -52,18 +52,15 @@ function loadForm({ status = 200, body, members = [] }) {
   return { byId, groupButton, sent };
 }
 
-async function submit(form, { nome, cognome, team = "Alfa", group = false }) {
+async function submit(form, { nome, cognome, team = "Alfa", group = false, tesista = group, anno = "1" }) {
   const { byId } = form;
   byId.nome.value = nome;
   byId.cognome.value = cognome;
   byId.email.value = "studente@studenti.naba.it";
   byId.team.value = team;
-  if (group) {
-    byId.tesista.checked = true;
-    form.groupButton.handlers.click();
-  } else {
-    byId.anno_corso.value = "1";
-  }
+  if (tesista) byId.tesista.checked = true;
+  else byId.anno_corso.value = anno;
+  if (group) form.groupButton.handlers.click();
   await byId.regForm.handlers.submit({ preventDefault() {} });
 }
 
@@ -184,6 +181,37 @@ async function main() {
     const form = loadForm({ body: allStored });
     await submit(form, { nome: "Mario", cognome: "Rossi", team: "Team2024.v2" });
     check("team con cifre e punti singoli → inviato", form.sent.length === 1);
+  }
+
+  // ── 4. Iscrizione di gruppo ──
+  console.log("\n4. Iscrizione di gruppo");
+  {
+    // Un gruppo di non tesisti: i compagni ereditano l'anno di chi compila.
+    const form = loadForm({ body: allStored, members: [["Anna", "Bianchi", "anna@studenti.naba.it"]] });
+    await submit(form, { nome: "Mario", cognome: "Rossi", group: true, tesista: false, anno: "2" });
+    const users = form.sent[0]?.users || [];
+    check("gruppo non tesista → inviati chi compila e il compagno", users.length === 2, `inviati ${users.length}`);
+    check("il compagno ha tesista 'no' e lo stesso anno",
+      users[1]?.tesista === "no" && users[1]?.anno_corso === "2" && users[1]?.username === "anna_bianchi",
+      JSON.stringify(users[1]));
+  }
+  {
+    const form = loadForm({ body: allStored, members: [["Anna", "Bianchi", "anna@studenti.naba.it"]] });
+    await submit(form, { nome: "Mario", cognome: "Rossi", group: true, tesista: true });
+    const u = form.sent[0]?.users?.[1];
+    check("gruppo di tesisti → il compagno ha tesista 'yes' e nessun anno",
+      u?.tesista === "yes" && u?.anno_corso === "", JSON.stringify(u));
+  }
+  {
+    // Iscrizione singola: le schede dei compagni rimaste nel DOM non contano.
+    const form = loadForm({ body: allStored, members: [["Anna", "Bianchi", "anna@studenti.naba.it"]] });
+    await submit(form, { nome: "Mario", cognome: "Rossi" });
+    check("modulo singolo → inviato solo chi compila", form.sent[0]?.users?.length === 1);
+  }
+  {
+    const form = loadForm({ body: allStored });
+    await submit(form, { nome: "Mario", cognome: "Rossi", tesista: false, anno: "" });
+    check("non tesista senza anno → fermato nel form", form.sent.length === 0);
   }
 
   console.log(`\n${"=".repeat(52)}`);
