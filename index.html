@@ -6,372 +6,349 @@
 <title>NABA - Perforce Registration</title>
 <link rel="icon" href="https://www.naba.it/favicon.ico" type="image/x-icon">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #000000;
-    --surface: #1c1c1e;
-    --text-primary: #f5f5f7;
-    --text-secondary: #a1a1a6;
-    --text-tertiary: #6e6e73;
-    --accent: #0a84ff;
-    --accent-hover: #409cff;
-    --accent-light: rgba(10, 132, 255, 0.12);
-    --border: rgba(255, 255, 255, 0.08);
-    --error: #ff453a;
-    --error-bg: rgba(255, 69, 58, 0.12);
-    --success: #30d158;
-    --success-bg: rgba(48, 209, 88, 0.12);
-    --input-bg: #2c2c2e;
-    --radius-sm: 10px;
-    --radius-lg: 20px;
-    --shadow-md: 0 4px 24px rgba(0,0,0,0.4), 0 1px 4px rgba(0,0,0,0.3);
-    --font: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Helvetica Neue', sans-serif;
-    --transition: 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+    --ground: #e8ebee;
+    --sheet: #f7f8f9;
+    --field: #ffffff;
+    --ink: #14171c;
+    --muted: #586170;
+    --faint: #8a93a0;
+    --line: #cdd3da;
+    --cobalt: #2443c9;
+    --cobalt-wash: rgba(36, 67, 201, 0.10);
+    --err: #b4321c;
+    --err-wash: rgba(180, 50, 28, 0.08);
+    --ok: #1d7a4c;
+    --ok-wash: rgba(29, 122, 76, 0.10);
+    --sans: 'Schibsted Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    --r-field: 8px;
+    --r-sheet: 14px;
+    --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+    color-scheme: light;
   }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #121519;
+      --sheet: #1a1e24;
+      --field: #22272e;
+      --ink: #e9ecef;
+      --muted: #a3abb6;
+      --faint: #6e7783;
+      --line: #2f363f;
+      --cobalt: #8aa0ff;
+      --cobalt-wash: rgba(138, 160, 255, 0.14);
+      --err: #ff8a73;
+      --err-wash: rgba(255, 138, 115, 0.10);
+      --ok: #5fd39a;
+      --ok-wash: rgba(95, 211, 154, 0.12);
+      color-scheme: dark;
+    }
+  }
+
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    font-family: var(--font);
-    background: var(--bg);
-    color: var(--text-primary);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.5;
+    background: var(--ground);
+    color: var(--ink);
     min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
     -webkit-font-smoothing: antialiased;
   }
+  .page { max-width: 600px; margin: 0 auto; padding: 0 16px; }
+  :focus-visible { outline: 2px solid var(--cobalt); outline-offset: 2px; }
 
-  /* ── Language bar ── */
-  .lang-bar {
-    position: fixed; top: 0; left: 0; right: 0;
-    display: flex; justify-content: flex-end;
-    padding: 16px 24px; z-index: 100;
-    background: linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, transparent 100%);
-    pointer-events: none;
+  /* ── Top bar ── */
+  .topbar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 20px 0;
   }
-  .lang-switcher {
-    display: flex; background: var(--surface);
-    border: 1px solid var(--border); border-radius: 100px;
-    overflow: hidden; pointer-events: all;
-  }
+  .wordmark { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
+  .wordmark span { color: var(--muted); font-weight: 500; }
+  .lang-switcher { display: flex; gap: 2px; }
   .lang-btn {
-    padding: 6px 14px; font-family: var(--font); font-size: 13px; font-weight: 500;
-    color: var(--text-tertiary); background: transparent; border: none;
-    cursor: pointer; transition: all var(--transition); position: relative;
-    display: flex; align-items: center; gap: 6px;
+    padding: 4px 10px; font: 500 13px var(--sans);
+    color: var(--muted); background: transparent;
+    border: 1px solid transparent; border-radius: 6px; cursor: pointer;
   }
-  .lang-btn:not(:last-child)::after {
-    content: ''; position: absolute; right: 0; top: 6px; bottom: 6px;
-    width: 1px; background: var(--border);
-  }
-  .lang-btn.active { color: var(--text-primary); background: rgba(255,255,255,0.06); }
-  .lang-btn:hover:not(.active) { color: var(--text-secondary); }
-  .lang-flag { width: 20px; height: 14px; border-radius: 2px; overflow: hidden; flex-shrink: 0; }
-  .lang-flag svg { display: block; width: 100%; height: 100%; }
+  .lang-btn.active { color: var(--ink); border-color: var(--line); background: var(--sheet); }
+  .lang-btn:hover:not(.active) { color: var(--ink); }
 
-  /* ── Hero ── */
-  .hero { text-align: center; padding: 80px 24px 48px; max-width: 680px; }
-  .hero h1 {
-    font-size: clamp(32px, 5vw, 48px); font-weight: 600;
-    letter-spacing: -0.025em; line-height: 1.1;
-    color: var(--text-primary); margin-bottom: 16px;
+  /* ── Intro ── */
+  .intro { padding: 28px 0 32px; }
+  .intro h1 {
+    font-size: clamp(30px, 6vw, 44px); font-weight: 700;
+    letter-spacing: -0.03em; line-height: 1.05; margin-bottom: 14px;
   }
-  .hero p {
-    font-size: 17px; font-weight: 400; color: var(--text-secondary);
-    line-height: 1.6; max-width: 480px; margin: 0 auto;
+  .intro p { color: var(--muted); font-size: 17px; max-width: 34em; }
+
+  /* ── Sheet ── */
+  .sheet {
+    background: var(--sheet); border: 1px solid var(--line);
+    border-radius: var(--r-sheet); padding: 8px 32px 32px;
   }
 
-  /* ── Card ── */
-  .form-card {
-    width: 100%; max-width: 580px; background: var(--surface);
-    border-radius: var(--radius-lg); border: 1px solid var(--border);
-    box-shadow: var(--shadow-md); padding: 48px 40px; margin: 0 24px 80px;
-    animation: cardIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  /* ── Steps ── */
+  .step { padding: 28px 0; border-bottom: 1px solid var(--line); }
+  .step:last-of-type { border-bottom: none; }
+  .step-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; }
+  .step-num {
+    font: 500 13px var(--mono); color: var(--cobalt);
+    min-width: 1.5em;
   }
-  @keyframes cardIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+  .step-head h2 { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
 
-  /* ── Sections ── */
-  .form-section { margin-bottom: 32px; }
-  .form-section:last-of-type { margin-bottom: 0; }
-  .section-label {
-    font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
-    text-transform: uppercase; color: var(--text-tertiary);
-    margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border);
+  /* ── Fields ── */
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .field { margin-bottom: 14px; }
+  .field:last-child { margin-bottom: 0; }
+  .row .field, .row .field:last-child { margin-bottom: 14px; }
+  .field label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+  .field input, .field select {
+    width: 100%; height: 46px; padding: 0 14px;
+    font: 400 16px var(--sans); color: var(--ink);
+    background: var(--field); border: 1px solid var(--line);
+    border-radius: var(--r-field); outline: none;
+    appearance: none; -webkit-appearance: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
   }
+  .field input::placeholder { color: var(--faint); }
+  .field input:focus, .field select:focus {
+    border-color: var(--cobalt); box-shadow: 0 0 0 3px var(--cobalt-wash);
+  }
+  .field input.error, .field select.error { border-color: var(--err); box-shadow: 0 0 0 3px var(--err-wash); }
+  .field select {
+    cursor: pointer; padding-right: 40px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' fill='none' stroke='%238a93a0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 14px center;
+  }
+  .hint { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .error-msg { font-size: 13px; color: var(--err); margin-top: 6px; display: none; }
+  .error-msg.visible { display: block; }
 
-  /* ── Inputs ── */
-  .input-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
-  .input-group { position: relative; margin-bottom: 12px; }
-  .input-row .input-group { margin-bottom: 0; }
-  .input-group label {
-    display: block; font-size: 13px; font-weight: 500;
-    color: var(--text-secondary); margin-bottom: 6px; transition: color var(--transition);
-  }
-  .input-group:focus-within label { color: var(--accent); }
-  .input-group input, .input-group select {
-    width: 100%; height: 48px; padding: 0 16px; font-family: var(--font);
-    font-size: 16px; font-weight: 400; color: var(--text-primary);
-    background: var(--input-bg); border: 1.5px solid var(--border);
-    border-radius: var(--radius-sm); outline: none;
-    transition: all var(--transition); appearance: none; -webkit-appearance: none;
-  }
-  .input-group input::placeholder { color: var(--text-tertiary); font-weight: 300; }
-  .input-group input:focus, .input-group select:focus {
-    border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); background: #3a3a3c;
-  }
-  .input-group input.error { border-color: var(--error); box-shadow: 0 0 0 3px var(--error-bg); }
-  .input-group select {
-    cursor: pointer;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' fill='none' stroke='%236e6e73' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    background-repeat: no-repeat; background-position: right 16px center; padding-right: 40px;
-  }
-  .error-msg { font-size: 12px; color: var(--error); margin-top: 4px; display: none; align-items: center; gap: 4px; }
-  .error-msg.visible { display: flex; }
-
-  /* ── Preview pills ── */
-  .preview-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; min-height: 36px; }
-  .preview-pill {
-    display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px;
-    background: var(--input-bg); border: 1px solid var(--border); border-radius: 100px;
-    font-size: 13px; color: var(--text-secondary); transition: all var(--transition);
-    opacity: 0; transform: translateY(4px);
-  }
-  .preview-pill.active { opacity: 1; transform: translateY(0); }
-  .preview-pill .pill-label { font-weight: 500; color: var(--text-tertiary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
-  .preview-pill .pill-value { font-weight: 500; color: var(--text-primary); font-family: 'SF Mono','Menlo','Consolas',monospace; font-size: 13px; }
-
-  /* ── Toggle ── */
-  .toggle-container { display: flex; align-items: center; gap: 16px; padding: 14px 0; }
-  .toggle-label-text { font-size: 15px; font-weight: 500; color: var(--text-primary); flex: 1; }
-  .toggle-sublabel { font-size: 13px; font-weight: 400; color: var(--text-tertiary); margin-top: 2px; }
-  .toggle-switch { position: relative; width: 51px; height: 31px; flex-shrink: 0; }
-  .toggle-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
-  .toggle-track { position: absolute; inset: 0; background: #48484a; border-radius: 31px; cursor: pointer; transition: background var(--transition); }
-  .toggle-switch input:checked + .toggle-track { background: var(--success); }
-  .toggle-knob { position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; background: white; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3); transition: transform var(--transition); pointer-events: none; }
-  .toggle-switch input:checked ~ .toggle-knob { transform: translateX(20px); }
-
-  /* ── Conditional fields ── */
-  .conditional-field {
-    overflow: hidden; max-height: 0; opacity: 0;
-    transition: max-height 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease, margin 0.3s ease;
-    margin-top: 0;
-  }
-  .conditional-field.visible { max-height: 2000px; opacity: 1; margin-top: 12px; }
-
-  /* ── Segmented control (singola / gruppo) ── */
-  .segmented-control {
-    display: flex; background: var(--input-bg); border-radius: var(--radius-sm);
-    padding: 3px; gap: 2px; margin-top: 12px;
+  /* ── Segmented choice ── */
+  .choice-label { font-size: 14px; font-weight: 500; margin: 6px 0 8px; }
+  .segmented {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+    padding: 4px; background: var(--ground); border-radius: 10px;
   }
   .seg-btn {
-    flex: 1; padding: 10px 0; font-family: var(--font); font-size: 14px; font-weight: 500;
-    color: var(--text-tertiary); background: transparent; border: none;
-    border-radius: 8px; cursor: pointer; transition: all var(--transition); text-align: center;
+    padding: 10px 8px; font: 500 15px var(--sans); color: var(--muted);
+    background: transparent; border: none; border-radius: 7px; cursor: pointer;
   }
-  .seg-btn.active { background: rgba(255,255,255,0.1); color: var(--text-primary); }
-  .seg-btn:hover:not(.active) { color: var(--text-secondary); }
+  .seg-btn.active { background: var(--field); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.12); }
+  .seg-btn:hover:not(.active) { color: var(--ink); }
+
+  /* ── Toggle ── */
+  .toggle-row { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; }
+  .toggle-text { flex: 1; }
+  .toggle-title { font-size: 15px; font-weight: 500; }
+  .toggle-sub { font-size: 13px; color: var(--muted); }
+  .toggle-switch { position: relative; width: 46px; height: 28px; flex-shrink: 0; }
+  .toggle-switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
+  .toggle-track { position: absolute; inset: 0; background: var(--line); border-radius: 28px; transition: background 0.2s; }
+  .toggle-switch input:checked + .toggle-track { background: var(--cobalt); }
+  .toggle-switch input:focus-visible + .toggle-track { outline: 2px solid var(--cobalt); outline-offset: 2px; }
+  .toggle-knob { position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; background: #fff; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,0.25); transition: transform 0.2s var(--ease); pointer-events: none; }
+  .toggle-switch input:checked ~ .toggle-knob { transform: translateX(18px); }
+
+  /* ── Conditional blocks ── */
+  .conditional { display: none; }
+  .conditional.visible { display: block; }
 
   /* ── Group members ── */
-  .group-members-container { margin-top: 16px; }
+  .members { margin-top: 18px; }
+  .members-title { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
   .member-card {
-    background: rgba(255,255,255,0.03); border: 1px solid var(--border);
-    border-radius: 12px; padding: 16px; margin-bottom: 10px;
-    position: relative; animation: memberIn 0.3s ease;
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 14px 2px; margin-bottom: 10px; background: var(--field);
+    animation: memberIn 0.25s var(--ease);
   }
-  @keyframes memberIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-  .member-card .member-header {
-    display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;
-  }
-  .member-number {
-    font-size: 12px; font-weight: 600; color: var(--accent);
-    background: var(--accent-light); padding: 3px 10px; border-radius: 100px;
-  }
+  @keyframes memberIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .member-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .member-number { font-size: 14px; font-weight: 600; }
   .remove-member-btn {
-    width: 28px; height: 28px; border-radius: 50%; border: none;
-    background: rgba(255,69,58,0.1); color: var(--error); cursor: pointer;
-    font-size: 16px; display: flex; align-items: center; justify-content: center;
-    transition: all var(--transition);
+    font: 500 13px var(--sans); color: var(--muted); background: none;
+    border: none; cursor: pointer; padding: 4px 6px; border-radius: 6px;
   }
-  .remove-member-btn:hover { background: rgba(255,69,58,0.2); }
-  .member-card .input-row { margin-bottom: 8px; }
-  .member-card .input-group { margin-bottom: 8px; }
-  .member-card .preview-bar { margin-top: 8px; min-height: 0; }
-
+  .remove-member-btn:hover { color: var(--err); background: var(--err-wash); }
+  .member-card .field input { background: var(--sheet); }
   .add-member-btn {
-    width: 100%; padding: 12px; margin-top: 4px;
-    font-family: var(--font); font-size: 14px; font-weight: 500;
-    color: var(--accent); background: var(--accent-light);
-    border: 1.5px dashed rgba(10,132,255,0.3); border-radius: var(--radius-sm);
-    cursor: pointer; transition: all var(--transition); text-align: center;
+    width: 100%; padding: 12px; font: 500 15px var(--sans); color: var(--cobalt);
+    background: transparent; border: 1px dashed var(--cobalt); border-radius: 10px; cursor: pointer;
   }
-  .add-member-btn:hover { background: rgba(10,132,255,0.18); border-color: var(--accent); }
+  .add-member-btn:hover { background: var(--cobalt-wash); }
+  .add-member-btn.hidden { display: none; }
+
+  /* ── Summary: what will be created on the server ── */
+  .summary {
+    margin-top: 8px; padding: 20px 22px; border-radius: 12px;
+    background: var(--ink); color: var(--sheet);
+  }
+  .summary-title { font-size: 13px; opacity: 0.7; margin-bottom: 4px; }
+  .summary-depot {
+    font: 500 clamp(18px, 4.5vw, 24px) var(--mono); letter-spacing: -0.02em;
+    word-break: break-all; margin-bottom: 14px;
+  }
+  .summary-list { list-style: none; border-top: 1px solid color-mix(in srgb, var(--sheet) 20%, transparent); }
+  .summary-list li {
+    display: flex; justify-content: space-between; gap: 16px; padding: 8px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--sheet) 12%, transparent);
+    font-size: 14px;
+  }
+  .summary-list .sum-user { font-family: var(--mono); word-break: break-all; }
+  .summary-list .sum-name { opacity: 0.7; text-align: right; flex-shrink: 0; max-width: 50%; }
 
   /* ── Submit ── */
   .submit-btn {
-    width: 100%; height: 52px; margin-top: 36px; background: #f5f5f7; color: #1c1c1e;
-    font-family: var(--font); font-size: 16px; font-weight: 600;
-    letter-spacing: -0.01em; border: none; border-radius: var(--radius-sm);
-    cursor: pointer; position: relative; overflow: hidden; transition: all var(--transition);
+    width: 100%; height: 52px; margin-top: 20px;
+    font: 600 16px var(--sans); color: #fff; background: var(--cobalt);
+    border: none; border-radius: 10px; cursor: pointer; position: relative;
+    transition: filter 0.15s;
   }
-  .submit-btn:hover { background: #ffffff; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(255,255,255,0.15); }
-  .submit-btn:active { transform: translateY(0); box-shadow: none; }
-  .submit-btn:disabled { background: #48484a; color: #86868b; cursor: not-allowed; transform: none; box-shadow: none; }
-  .submit-btn .btn-text { transition: opacity 0.2s; }
-  .submit-btn .btn-spinner { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s; }
-  .submit-btn.loading .btn-text { opacity: 0; }
-  .submit-btn.loading .btn-spinner { opacity: 1; }
-  .spinner { width: 20px; height: 20px; border: 2.5px solid rgba(28,28,30,0.3); border-top-color: #1c1c1e; border-radius: 50%; animation: spin 0.7s linear infinite; }
+  @media (prefers-color-scheme: dark) { .submit-btn { color: #0d1020; } }
+  .submit-btn:hover { filter: brightness(1.08); }
+  .submit-btn:disabled { opacity: 0.6; cursor: progress; filter: none; }
+  .submit-btn .btn-spinner { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; }
+  .submit-btn.loading .btn-text { visibility: hidden; }
+  .submit-btn.loading .btn-spinner { display: flex; }
+  .spinner { width: 20px; height: 20px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ── Status ── */
-  .status-message { margin-top: 16px; padding: 14px 18px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 500; display: none; align-items: center; gap: 10px; animation: statusIn 0.3s ease; }
-  @keyframes statusIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
-  .status-message.success { display: flex; background: var(--success-bg); color: var(--success); border: 1px solid rgba(48,209,88,0.2); }
-  .status-message.error { display: flex; background: var(--error-bg); color: var(--error); border: 1px solid rgba(255,69,58,0.15); }
-  .status-icon { width: 20px; height: 20px; flex-shrink: 0; }
+  .status-message { margin-top: 14px; padding: 12px 14px; border-radius: 10px; font-size: 14px; font-weight: 500; display: none; gap: 10px; align-items: flex-start; }
+  .status-message.success { display: flex; background: var(--ok-wash); color: var(--ok); }
+  .status-message.error { display: flex; background: var(--err-wash); color: var(--err); }
+  .status-icon { width: 20px; height: 20px; flex-shrink: 0; display: none; }
+  .status-message.success .success-icon, .status-message.error .error-icon { display: block; }
 
-  .footer { text-align: center; padding: 24px; font-size: 12px; color: var(--text-tertiary); }
+  .footer { padding: 28px 0 40px; font-size: 13px; color: var(--faint); }
 
-  @media (max-width: 600px) {
-    .hero { padding: 72px 20px 32px; }
-    .form-card { padding: 32px 24px; margin: 0 16px 60px; }
-    .input-row { grid-template-columns: 1fr; }
+  @media (max-width: 560px) {
+    .sheet { padding: 0 18px 22px; }
+    .row { grid-template-columns: 1fr; gap: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
   }
 </style>
 </head>
 <body>
+<div class="page">
 
-<div class="lang-bar">
+<div class="topbar">
+  <div class="wordmark">NABA <span>Perforce</span></div>
   <div class="lang-switcher">
-    <button class="lang-btn active" data-lang="it" onclick="setLang('it')">
-      <span class="lang-flag"><svg viewBox="0 0 640 480"><rect width="213.3" height="480" fill="#009246"/><rect x="213.3" width="213.4" height="480" fill="#fff"/><rect x="426.7" width="213.3" height="480" fill="#ce2b37"/></svg></span>
-      IT
-    </button>
-    <button class="lang-btn" data-lang="en" onclick="setLang('en')">
-      <span class="lang-flag"><svg viewBox="0 0 640 480"><path fill="#012169" d="M0 0h640v480H0z"/><path fill="#FFF" d="m75 0 244 181L562 0h78v62L400 241l240 178v61h-80L320 301 81 480H0v-60l239-178L0 64V0z"/><path fill="#C8102E" d="m424 281 216 159v40L369 281zm-184 20 6 35L54 480H0zM640 0v3L391 191l2-44L590 0zM0 0l239 176h-60L0 42z"/><path fill="#FFF" d="M241 0v480h160V0zM0 160v160h640V160z"/><path fill="#C8102E" d="M0 193v96h640v-96zM273 0v480h96V0z"/></svg></span>
-      EN
-    </button>
+    <button type="button" class="lang-btn active" data-lang="it" onclick="setLang('it')">IT</button>
+    <button type="button" class="lang-btn" data-lang="en" onclick="setLang('en')">EN</button>
   </div>
 </div>
 
-<header class="hero">
-  <h1 data-i18n="title">Iscrizione server Perforce NABA</h1>
-  <p data-i18n-html="subtitle">Compila il modulo per richiedere il tuo account.<br>I tuoi dati verranno elaborati per la creazione dell'utente.</p>
+<header class="intro">
+  <h1 data-i18n="title">Accesso al server Perforce</h1>
+  <p data-i18n="subtitle">Ogni studente riceve il proprio account, ogni team il proprio depot. Se lavori in gruppo puoi iscrivere anche i tuoi compagni da qui.</p>
 </header>
 
-<main class="form-card">
+<main class="sheet">
   <form id="regForm" novalidate>
 
-    <!-- Identity -->
-    <div class="form-section">
-      <div class="section-label" data-i18n="section_identity">Identità</div>
-      <div class="input-row">
-        <div class="input-group">
+    <!-- 1. Identity -->
+    <section class="step">
+      <div class="step-head"><span class="step-num">1</span><h2 data-i18n="step_identity">Chi sei</h2></div>
+      <div class="row">
+        <div class="field">
           <label for="nome" data-i18n="label_nome">Nome</label>
           <input type="text" id="nome" data-i18n-ph="ph_nome" placeholder="Mario" autocomplete="given-name" required>
           <div class="error-msg" id="nome-error" data-i18n="err_nome">Inserisci il tuo nome</div>
         </div>
-        <div class="input-group">
+        <div class="field">
           <label for="cognome" data-i18n="label_cognome">Cognome</label>
           <input type="text" id="cognome" data-i18n-ph="ph_cognome" placeholder="Rossi" autocomplete="family-name" required>
           <div class="error-msg" id="cognome-error" data-i18n="err_cognome">Inserisci il tuo cognome</div>
         </div>
       </div>
-      <div class="preview-bar">
-        <div class="preview-pill" id="pill-username">
-          <span class="pill-label">Username</span>
-          <span class="pill-value" id="preview-username">—</span>
-        </div>
-        <div class="preview-pill" id="pill-fullname">
-          <span class="pill-label">Full name</span>
-          <span class="pill-value" id="preview-fullname">—</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Contact -->
-    <div class="form-section">
-      <div class="section-label" data-i18n="section_contact">Contatto</div>
-      <div class="input-group">
+      <div class="field">
         <label for="email" data-i18n="label_email">Email</label>
         <input type="email" id="email" data-i18n-ph="ph_email" placeholder="mario.rossi@studenti.naba.it" autocomplete="email" required>
         <div class="error-msg" id="email-error" data-i18n="err_email">Inserisci un indirizzo email valido</div>
       </div>
-    </div>
+    </section>
 
-    <!-- Project -->
-    <div class="form-section">
-      <div class="section-label" data-i18n="section_project">Progetto</div>
-      <div class="input-group">
-        <label for="team" data-i18n="label_team">Nome del team / progetto</label>
-        <input type="text" id="team" data-i18n-ph="ph_team" placeholder="es. ProjectAlpha" required>
+    <!-- 2. Project -->
+    <section class="step">
+      <div class="step-head"><span class="step-num">2</span><h2 data-i18n="step_project">Il progetto</h2></div>
+      <div class="field">
+        <label for="team" data-i18n="label_team">Nome del team o progetto</label>
+        <input type="text" id="team" data-i18n-ph="ph_team" placeholder="ProjectAlpha" autocomplete="off" spellcheck="false" required>
         <div class="error-msg" id="team-error" data-i18n="err_team">Solo lettere, cifre, punto, trattino e underscore, senza spazi, non solo cifre e senza "..." (es. ProjectAlpha)</div>
+        <div class="hint" data-i18n="hint_team">Usate tutti lo stesso nome: diventa il depot del team.</div>
       </div>
-    </div>
 
-    <!-- Academic -->
-    <div class="form-section">
-      <div class="section-label" data-i18n="section_academic">Percorso accademico</div>
+      <div class="choice-label" id="mode-label" data-i18n="label_mode">Chi stai iscrivendo?</div>
+      <div class="segmented" id="mode-segmented" role="group" aria-labelledby="mode-label">
+        <button type="button" class="seg-btn active" data-value="single" aria-pressed="true" data-i18n="seg_single">Solo me</button>
+        <button type="button" class="seg-btn" data-value="group" aria-pressed="false" data-i18n="seg_group">Me e il mio gruppo</button>
+      </div>
 
-      <!-- Tesista toggle -->
-      <div class="toggle-container">
-        <div>
-          <div class="toggle-label-text" data-i18n="label_tesista">Sei un tesista?</div>
-          <div class="toggle-sublabel" data-i18n="sublabel_tesista">I tesisti non richiedono anno di corso</div>
+      <div class="conditional members" id="group-container">
+        <div class="members-title" data-i18n="members_title">Compagni di gruppo</div>
+        <div id="group-members"></div>
+        <button type="button" class="add-member-btn" id="addMemberBtn" data-i18n="btn_add_member">Aggiungi un compagno</button>
+        <div class="hint" data-i18n="hint_group">Ognuno riceve il proprio account. Fino a 24 compagni per invio: un gruppo più grande si iscrive con più moduli.</div>
+      </div>
+    </section>
+
+    <!-- 3. Academic -->
+    <section class="step">
+      <div class="step-head"><span class="step-num">3</span><h2 data-i18n="step_academic">Percorso</h2></div>
+      <div class="toggle-row">
+        <div class="toggle-text">
+          <div class="toggle-title" id="tesista-label" data-i18n="label_tesista">Stai lavorando alla tesi?</div>
+          <div class="toggle-sub" data-i18n="sublabel_tesista">Chi è in tesi non indica l'anno di corso.</div>
         </div>
         <label class="toggle-switch">
-          <input type="checkbox" id="tesista">
-          <div class="toggle-track"></div>
-          <div class="toggle-knob"></div>
+          <input type="checkbox" id="tesista" aria-labelledby="tesista-label">
+          <span class="toggle-track"></span>
+          <span class="toggle-knob"></span>
         </label>
       </div>
 
-      <!-- Anno di corso (visible when NOT tesista) -->
-      <div class="conditional-field visible" id="anno-container">
-        <div class="input-group">
+      <div class="conditional visible" id="anno-container">
+        <div class="field">
           <label for="anno_corso" data-i18n="label_anno">Anno di corso</label>
           <select id="anno_corso">
             <option value="" disabled selected data-i18n="opt_select_anno">Seleziona anno</option>
-            <option value="1" data-i18n="opt_anno_1">1° Anno</option>
-            <option value="2" data-i18n="opt_anno_2">2° Anno</option>
-            <option value="3" data-i18n="opt_anno_3">3° Anno</option>
+            <option value="1" data-i18n="opt_anno_1">1° anno</option>
+            <option value="2" data-i18n="opt_anno_2">2° anno</option>
+            <option value="3" data-i18n="opt_anno_3">3° anno</option>
           </select>
           <div class="error-msg" id="anno-error" data-i18n="err_anno">Seleziona l'anno di corso</div>
         </div>
       </div>
+    </section>
 
-      <!-- Thesis type: singola / gruppo (visible when tesista ON) -->
-      <div class="conditional-field" id="thesis-type-container">
-        <div class="toggle-container" style="padding-top:4px">
-          <div>
-            <div class="toggle-label-text" data-i18n="label_thesis_type">Tipo di tesi</div>
-          </div>
-        </div>
-        <div class="segmented-control" id="thesis-segmented">
-          <button type="button" class="seg-btn active" data-value="single" data-i18n="seg_single">Singola</button>
-          <button type="button" class="seg-btn" data-value="group" data-i18n="seg_group">Di gruppo</button>
-        </div>
-      </div>
-
-      <!-- Group members (visible when tesista ON + group) -->
-      <div class="conditional-field" id="group-container">
-        <div class="group-members-container" id="group-members"></div>
-        <button type="button" class="add-member-btn" id="addMemberBtn" data-i18n="btn_add_member">+ Aggiungi membro del gruppo</button>
-      </div>
+    <!-- Summary -->
+    <div class="summary">
+      <div class="summary-title" data-i18n="summary_title">Verrà richiesto l'accesso a</div>
+      <div class="summary-depot" id="summary-depot">//ProjectAlpha/...</div>
+      <ul class="summary-list" id="summary-list"></ul>
     </div>
 
     <button type="submit" class="submit-btn" id="submitBtn">
-      <span class="btn-text" data-i18n="btn_submit">Invia richiesta</span>
+      <span class="btn-text" id="submit-label">Invia la richiesta</span>
       <span class="btn-spinner"><span class="spinner"></span></span>
     </button>
 
-    <div class="status-message" id="statusMsg">
-      <svg class="status-icon success-icon" viewBox="0 0 20 20" fill="none">
+    <div class="status-message" id="statusMsg" role="status">
+      <svg class="status-icon success-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
         <circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.5"/>
         <path d="M6 10.5L8.5 13L14 7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      <svg class="status-icon error-icon" viewBox="0 0 20 20" fill="none">
+      <svg class="status-icon error-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
         <circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.5"/>
         <path d="M7 7L13 13M13 7L7 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
       </svg>
@@ -381,7 +358,9 @@
   </form>
 </main>
 
-<footer class="footer">Perforce User Management System — NABA</footer>
+<footer class="footer" data-i18n="footer">Gestione utenti Perforce, NABA</footer>
+
+</div>
 
 <script>
   // ══════════════════════════════════════
@@ -389,66 +368,70 @@
   // ══════════════════════════════════════
   const translations = {
     it: {
-      title: 'Iscrizione server Perforce NABA',
-      subtitle: 'Compila il modulo per richiedere il tuo account.<br>I tuoi dati verranno elaborati per la creazione dell\'utente.',
-      section_identity: 'Identità',
+      title: 'Accesso al server Perforce',
+      subtitle: 'Ogni studente riceve il proprio account, ogni team il proprio depot. Se lavori in gruppo puoi iscrivere anche i tuoi compagni da qui.',
+      step_identity: 'Chi sei', step_project: 'Il progetto', step_academic: 'Percorso',
       label_nome: 'Nome', ph_nome: 'Mario', err_nome: 'Inserisci il tuo nome',
       label_cognome: 'Cognome', ph_cognome: 'Rossi', err_cognome: 'Inserisci il tuo cognome',
-      section_contact: 'Contatto',
       label_email: 'Email', ph_email: 'mario.rossi@studenti.naba.it', err_email: 'Inserisci un indirizzo email valido',
-      section_project: 'Progetto',
-      label_team: 'Nome del team / progetto', ph_team: 'es. ProjectAlpha', err_team: 'Solo lettere, cifre, punto, trattino e underscore, senza spazi, non solo cifre e senza "..." (es. ProjectAlpha)',
-      section_academic: 'Percorso accademico',
-      label_tesista: 'Sei un tesista?', sublabel_tesista: 'I tesisti non richiedono anno di corso',
-      label_anno: 'Anno di corso', opt_select_anno: 'Seleziona anno',
-      opt_anno_1: '1° Anno', opt_anno_2: '2° Anno', opt_anno_3: '3° Anno',
-      err_anno: 'Seleziona l\'anno di corso',
-      label_thesis_type: 'Tipo di tesi',
-      seg_single: 'Singola', seg_group: 'Di gruppo',
-      btn_add_member: '+ Aggiungi membro del gruppo',
-      member_label: 'Membro',
+      label_team: 'Nome del team o progetto', ph_team: 'ProjectAlpha', err_team: 'Solo lettere, cifre, punto, trattino e underscore, senza spazi, non solo cifre e senza "..." (es. ProjectAlpha)',
+      hint_team: 'Usate tutti lo stesso nome: diventa il depot del team.',
+      label_mode: 'Chi stai iscrivendo?', seg_single: 'Solo me', seg_group: 'Me e il mio gruppo',
+      members_title: 'Compagni di gruppo',
+      btn_add_member: 'Aggiungi un compagno',
+      hint_group: 'Ognuno riceve il proprio account. Fino a 24 compagni per invio: un gruppo più grande si iscrive con più moduli.',
+      member_label: 'Compagno', member_remove: 'Rimuovi',
+      member_percorso: 'Anno o tesi', member_opt_select: 'Seleziona', member_opt_tesi: 'Tesi',
       member_nome: 'Nome', member_cognome: 'Cognome', member_email: 'Email',
       member_ph_nome: 'Nome', member_ph_cognome: 'Cognome', member_ph_email: 'email@studenti.naba.it',
-      btn_submit: 'Invia richiesta',
-      msg_success: 'Richiesta inviata con successo. Il tuo account verrà creato a breve.',
-      msg_error: 'Si è verificato un errore: {err}. Riprova più tardi.',
+      label_tesista: 'Stai lavorando alla tesi?', sublabel_tesista: 'Chi è in tesi non indica l\'anno di corso.',
+      label_anno: 'Anno di corso', opt_select_anno: 'Seleziona anno',
+      opt_anno_1: '1° anno', opt_anno_2: '2° anno', opt_anno_3: '3° anno',
+      err_anno: 'Seleziona l\'anno di corso',
+      summary_title: 'Verrà richiesto l\'accesso a', summary_team_ph: 'NomeTeam', summary_you: 'tu',
+      btn_submit: 'Invia la richiesta', btn_submit_n: 'Invia la richiesta per {n} persone',
+      msg_success: 'Richiesta inviata. L\'account verrà creato a breve.',
+      msg_error: 'Richiesta non inviata: {err}. Riprova tra qualche minuto.',
       msg_partial: 'Registrazione incompleta. Non registrati: {users}. Correggi i dati e reinvia: chi è già registrato non viene duplicato.',
       err_username: 'Nome e cognome vanno scritti in caratteri latini, perché da lì si ricava lo username: {names}',
-      err_member_nome: 'Inserisci il nome', err_member_cognome: 'Inserisci il cognome', err_member_email: 'Email non valida'
+      err_duplicate: 'Lo stesso username compare più volte: {names}. Ogni persona va inserita una volta sola.',
+      footer: 'Gestione utenti Perforce, NABA'
     },
     en: {
-      title: 'Perforce NABA Server Registration',
-      subtitle: 'Fill out the form to request your account.<br>Your data will be processed for user creation.',
-      section_identity: 'Identity',
+      title: 'Perforce server access',
+      subtitle: 'Every student gets their own account, every team its own depot. If you work in a group you can sign up your teammates here too.',
+      step_identity: 'About you', step_project: 'Project', step_academic: 'Studies',
       label_nome: 'First name', ph_nome: 'John', err_nome: 'Enter your first name',
       label_cognome: 'Last name', ph_cognome: 'Doe', err_cognome: 'Enter your last name',
-      section_contact: 'Contact',
       label_email: 'Email', ph_email: 'john.doe@studenti.naba.it', err_email: 'Enter a valid email address',
-      section_project: 'Project',
-      label_team: 'Team / project name', ph_team: 'e.g. ProjectAlpha', err_team: 'Letters, digits, dot, dash and underscore only, no spaces, not digits only and no "..." (e.g. ProjectAlpha)',
-      section_academic: 'Academic path',
-      label_tesista: 'Are you a thesis student?', sublabel_tesista: 'Thesis students don\'t need to specify the year',
-      label_anno: 'Year of study', opt_select_anno: 'Select year',
-      opt_anno_1: '1st Year', opt_anno_2: '2nd Year', opt_anno_3: '3rd Year',
-      err_anno: 'Select the year of study',
-      label_thesis_type: 'Thesis type',
-      seg_single: 'Individual', seg_group: 'Group',
-      btn_add_member: '+ Add group member',
-      member_label: 'Member',
+      label_team: 'Team or project name', ph_team: 'ProjectAlpha', err_team: 'Letters, digits, dot, dash and underscore only, no spaces, not digits only and no "..." (e.g. ProjectAlpha)',
+      hint_team: 'Everyone should use the same name: it becomes the team depot.',
+      label_mode: 'Who are you signing up?', seg_single: 'Just me', seg_group: 'Me and my group',
+      members_title: 'Teammates',
+      btn_add_member: 'Add a teammate',
+      hint_group: 'Everyone gets their own account. Up to 24 teammates per request: sign up a larger group with more forms.',
+      member_label: 'Teammate', member_remove: 'Remove',
+      member_percorso: 'Year or thesis', member_opt_select: 'Select', member_opt_tesi: 'Thesis',
       member_nome: 'First name', member_cognome: 'Last name', member_email: 'Email',
       member_ph_nome: 'First name', member_ph_cognome: 'Last name', member_ph_email: 'email@studenti.naba.it',
-      btn_submit: 'Submit request',
-      msg_success: 'Request submitted successfully. Your account will be created shortly.',
-      msg_error: 'An error occurred: {err}. Please try again later.',
+      label_tesista: 'Are you working on your thesis?', sublabel_tesista: 'Thesis students don\'t pick a year.',
+      label_anno: 'Year of study', opt_select_anno: 'Select year',
+      opt_anno_1: '1st year', opt_anno_2: '2nd year', opt_anno_3: '3rd year',
+      err_anno: 'Select the year of study',
+      summary_title: 'Access will be requested to', summary_team_ph: 'TeamName', summary_you: 'you',
+      btn_submit: 'Send request', btn_submit_n: 'Send request for {n} people',
+      msg_success: 'Request sent. The account will be created shortly.',
+      msg_error: 'Request not sent: {err}. Try again in a few minutes.',
       msg_partial: 'Registration incomplete. Not registered: {users}. Fix the details and resubmit: users already registered will not be duplicated.',
       err_username: 'First and last name must be written in Latin characters, because the username is built from them: {names}',
-      err_member_nome: 'Enter the name', err_member_cognome: 'Enter the last name', err_member_email: 'Invalid email'
+      err_duplicate: 'The same username appears more than once: {names}. Enter each person only once.',
+      footer: 'Perforce user management, NABA'
     }
   };
 
   let currentLang = 'it';
-  let memberCount = 0;
-  let thesisType = 'single';
+  let memberSeq = 0;      // solo per gli id dei campi, non per la numerazione
+  let mode = 'single';    // 'single' | 'group': iscrizione di sé o anche dei compagni
 
   function t(key) { return translations[currentLang][key] || key; }
 
@@ -460,10 +443,6 @@
       const k = el.getAttribute('data-i18n');
       if (tr[k]) el.textContent = tr[k];
     });
-    document.querySelectorAll('[data-i18n-html]').forEach(el => {
-      const k = el.getAttribute('data-i18n-html');
-      if (tr[k]) el.innerHTML = tr[k];
-    });
     document.querySelectorAll('[data-i18n-ph]').forEach(el => {
       const k = el.getAttribute('data-i18n-ph');
       if (tr[k]) el.placeholder = tr[k];
@@ -471,16 +450,8 @@
     document.querySelectorAll('.lang-btn').forEach(btn => {
       btn.classList.toggle('active', btn.getAttribute('data-lang') === lang);
     });
-    // Re-translate member cards
-    document.querySelectorAll('.member-card').forEach((card, i) => {
-      card.querySelector('.member-number').textContent = `${tr.member_label} ${i + 1}`;
-      card.querySelectorAll('label')[0].textContent = tr.member_nome;
-      card.querySelectorAll('label')[1].textContent = tr.member_cognome;
-      card.querySelectorAll('label')[2].textContent = tr.member_email;
-      card.querySelectorAll('input')[0].placeholder = tr.member_ph_nome;
-      card.querySelectorAll('input')[1].placeholder = tr.member_ph_cognome;
-      card.querySelectorAll('input')[2].placeholder = tr.member_ph_email;
-    });
+    renumberMembers();
+    renderSummary();
   }
 
   // ══════════════════════════════════════
@@ -493,18 +464,16 @@
   const tesistaEl = document.getElementById('tesista');
   const annoContainer = document.getElementById('anno-container');
   const annoEl = document.getElementById('anno_corso');
-  const thesisTypeContainer = document.getElementById('thesis-type-container');
   const groupContainer = document.getElementById('group-container');
   const groupMembers = document.getElementById('group-members');
   const addMemberBtn = document.getElementById('addMemberBtn');
   const form = document.getElementById('regForm');
   const submitBtn = document.getElementById('submitBtn');
+  const submitLabel = document.getElementById('submit-label');
   const statusMsg = document.getElementById('statusMsg');
   const statusText = document.getElementById('statusText');
-  const pillUsername = document.getElementById('pill-username');
-  const pillFullname = document.getElementById('pill-fullname');
-  const previewUsername = document.getElementById('preview-username');
-  const previewFullname = document.getElementById('preview-fullname');
+  const summaryDepot = document.getElementById('summary-depot');
+  const summaryList = document.getElementById('summary-list');
 
   // ══════════════════════════════════════
   // Utilities
@@ -512,13 +481,22 @@
   function sanitize(str) {
     return str.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
   }
+  // Maiuscola a inizio parola, anche dopo apostrofo o trattino. \b non
+  // conosce le accentate: con lui "maría" diventava "maríA".
   function capitalize(str) {
-    return str.trim().replace(/\b\w/g, c => c.toUpperCase());
+    return str.trim().replace(/(^|[^\p{L}\p{M}\p{N}])(\p{L})/gu, (m, sep, c) => sep + c.toUpperCase());
   }
   // Una sola regola per anteprima e invio: un nome senza lettere latine non
   // deve lasciare un '_' iniziale nello username inviato.
   function makeUsername(n, c) {
     return [sanitize(n), sanitize(c)].filter(Boolean).join('_');
+  }
+  // Come il worker: tronca a 64 caratteri. È lo username che verrà salvato.
+  function finalUsername(n, c) {
+    return makeUsername(n, c).slice(0, 64);
+  }
+  function makeFullName(n, c) {
+    return [capitalize(n), capitalize(c)].filter(Boolean).join(' ');
   }
   // La regola dello username nel worker: si controlla prima dell'invio,
   // altrimenti di un gruppo verrebbe registrata solo una parte.
@@ -526,133 +504,140 @@
   // L'email invece si controlla solo nella forma, più larga di quella del worker.
   const RE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-  // ══════════════════════════════════════
-  // Preview
-  // ══════════════════════════════════════
-  function renderPreview(n, c, unameEl, fnameEl, unamePill, fnamePill) {
-    const uname = makeUsername(n, c);
-    const fname = [capitalize(n), capitalize(c)].filter(Boolean).join(' ');
-    unameEl.textContent = uname || '—';
-    fnameEl.textContent = fname || '—';
-    unamePill.classList.toggle('active', uname.length > 0);
-    fnamePill.classList.toggle('active', fname.length > 0);
+  function memberCards() {
+    return mode === 'group' ? Array.from(document.querySelectorAll('.member-card')) : [];
   }
 
-  function updatePreview() {
-    renderPreview(nomeEl.value.trim(), cognomeEl.value.trim(),
-      previewUsername, previewFullname, pillUsername, pillFullname);
-  }
-  nomeEl.addEventListener('input', updatePreview);
-  cognomeEl.addEventListener('input', updatePreview);
+  const MAX_MEMBERS = 24;  // il worker accetta 25 persone per invio
 
-  function updateMemberPreview(card) {
-    const [n, c] = card.querySelectorAll('input');
-    renderPreview(n.value.trim(), c.value.trim(),
-      card.querySelector('.m-preview-username'), card.querySelector('.m-preview-fullname'),
-      card.querySelector('.m-pill-username'), card.querySelector('.m-pill-fullname'));
+  // Le persone che questo invio iscrive: chi compila, più i compagni se il
+  // modulo è di gruppo. Gli input di ogni scheda sono nome, cognome, email;
+  // il select è il percorso del compagno ('1', '2', '3' o 'tesi').
+  function people() {
+    const list = [{ n: nomeEl, c: cognomeEl, e: emailEl, percorso: null }];
+    memberCards().forEach(card => {
+      const [n, c, e] = card.querySelectorAll('input');
+      list.push({ n, c, e, percorso: card.querySelector('select') });
+    });
+    return list;
   }
 
   // ══════════════════════════════════════
-  // Tesista / Anno / Thesis type logic
+  // Summary
+  // ══════════════════════════════════════
+  // Mostra cosa verrà creato sul server: il depot del team e lo username di
+  // ogni persona. Solo textContent: i valori sono scritti dagli studenti.
+  function renderSummary() {
+    const team = teamEl.value.trim();
+    summaryDepot.textContent = `//${team || t('summary_team_ph')}/...`;
+    summaryList.textContent = '';
+    const list = people();
+    list.forEach((p, i) => {
+      const n = p.n.value.trim(), c = p.c.value.trim();
+      const li = document.createElement('li');
+      const user = document.createElement('span');
+      user.className = 'sum-user';
+      user.textContent = finalUsername(n, c) || '—';
+      const name = document.createElement('span');
+      name.className = 'sum-name';
+      name.textContent = makeFullName(n, c) || (i === 0 ? t('summary_you') : `${t('member_label')} ${i}`);
+      li.appendChild(user);
+      li.appendChild(name);
+      summaryList.appendChild(li);
+    });
+    submitLabel.textContent = list.length > 1
+      ? t('btn_submit_n').replace('{n}', list.length)
+      : t('btn_submit');
+  }
+
+  // ══════════════════════════════════════
+  // Mode / Tesista / Anno
   // ══════════════════════════════════════
   function updateVisibility() {
     const isTesista = tesistaEl.checked;
-    if (isTesista) {
-      annoContainer.classList.remove('visible');
-      annoEl.value = '';
-      thesisTypeContainer.classList.add('visible');
-      updateGroupVisibility();
-    } else {
-      annoContainer.classList.add('visible');
-      thesisTypeContainer.classList.remove('visible');
-      groupContainer.classList.remove('visible');
-    }
+    annoContainer.classList.toggle('visible', !isTesista);
+    if (isTesista) annoEl.value = '';
+    groupContainer.classList.toggle('visible', mode === 'group');
+    if (mode === 'group' && document.querySelectorAll('.member-card').length === 0) addMember();
+    renderSummary();
   }
 
-  function updateGroupVisibility() {
-    if (thesisType === 'group') {
-      groupContainer.classList.add('visible');
-      if (memberCount === 0) addMember();
-    } else {
-      groupContainer.classList.remove('visible');
-    }
+  function setMode(value) {
+    mode = value;
+    document.querySelectorAll('#mode-segmented .seg-btn').forEach(b => {
+      const on = b.getAttribute('data-value') === mode;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    updateVisibility();
   }
 
   tesistaEl.addEventListener('change', updateVisibility);
-  updateVisibility();
-
-  // Segmented control
-  document.querySelectorAll('#thesis-segmented .seg-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('#thesis-segmented .seg-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      thesisType = btn.getAttribute('data-value');
-      updateGroupVisibility();
-    });
+  document.querySelectorAll('#mode-segmented .seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => setMode(btn.getAttribute('data-value')));
   });
 
   // ══════════════════════════════════════
   // Group members
   // ══════════════════════════════════════
   function addMember() {
-    memberCount++;
-    const idx = memberCount;
+    const id = ++memberSeq;
     const tr = translations[currentLang];
     const card = document.createElement('div');
     card.className = 'member-card';
-    card.setAttribute('data-member-id', idx);
     card.innerHTML = `
-      <div class="member-header">
-        <span class="member-number">${tr.member_label} ${idx}</span>
-        <button type="button" class="remove-member-btn" onclick="removeMember(this)">&times;</button>
+      <div class="member-head">
+        <span class="member-number"></span>
+        <button type="button" class="remove-member-btn" data-i18n="member_remove">${tr.member_remove}</button>
       </div>
-      <div class="input-row">
-        <div class="input-group">
-          <label>${tr.member_nome}</label>
-          <input type="text" placeholder="${tr.member_ph_nome}" oninput="updateMemberPreview(this.closest('.member-card'))">
+      <div class="row">
+        <div class="field">
+          <label for="m${id}-nome" data-i18n="member_nome">${tr.member_nome}</label>
+          <input type="text" id="m${id}-nome" data-i18n-ph="member_ph_nome" placeholder="${tr.member_ph_nome}" autocomplete="off">
         </div>
-        <div class="input-group">
-          <label>${tr.member_cognome}</label>
-          <input type="text" placeholder="${tr.member_ph_cognome}" oninput="updateMemberPreview(this.closest('.member-card'))">
+        <div class="field">
+          <label for="m${id}-cognome" data-i18n="member_cognome">${tr.member_cognome}</label>
+          <input type="text" id="m${id}-cognome" data-i18n-ph="member_ph_cognome" placeholder="${tr.member_ph_cognome}" autocomplete="off">
         </div>
       </div>
-      <div class="input-group">
-        <label>${tr.member_email}</label>
-        <input type="email" placeholder="${tr.member_ph_email}">
+      <div class="field">
+        <label for="m${id}-email" data-i18n="member_email">${tr.member_email}</label>
+        <input type="email" id="m${id}-email" data-i18n-ph="member_ph_email" placeholder="${tr.member_ph_email}" autocomplete="off">
       </div>
-      <div class="preview-bar">
-        <div class="preview-pill m-pill-username">
-          <span class="pill-label">Username</span>
-          <span class="pill-value m-preview-username">—</span>
-        </div>
-        <div class="preview-pill m-pill-fullname">
-          <span class="pill-label">Full name</span>
-          <span class="pill-value m-preview-fullname">—</span>
-        </div>
+      <div class="field">
+        <label for="m${id}-percorso" data-i18n="member_percorso">${tr.member_percorso}</label>
+        <select id="m${id}-percorso">
+          <option value="" disabled data-i18n="member_opt_select">${tr.member_opt_select}</option>
+          <option value="1" data-i18n="opt_anno_1">${tr.opt_anno_1}</option>
+          <option value="2" data-i18n="opt_anno_2">${tr.opt_anno_2}</option>
+          <option value="3" data-i18n="opt_anno_3">${tr.opt_anno_3}</option>
+          <option value="tesi" data-i18n="member_opt_tesi">${tr.member_opt_tesi}</option>
+        </select>
       </div>
     `;
-    groupMembers.appendChild(card);
-  }
-
-  window.removeMember = function(btn) {
-    const card = btn.closest('.member-card');
-    card.style.opacity = '0';
-    card.style.transform = 'translateY(-8px)';
-    card.style.transition = 'all 0.2s ease';
-    setTimeout(() => {
+    // Parte dal percorso di chi compila, se l'ha già scelto: nel caso comune
+    // il gruppo è dello stesso anno e basta non toccarlo.
+    card.querySelector('select').value = tesistaEl.checked ? 'tesi' : annoEl.value;
+    card.querySelector('.remove-member-btn').addEventListener('click', () => {
       card.remove();
       renumberMembers();
-    }, 200);
-  };
-
-  function renumberMembers() {
-    const tr = translations[currentLang];
-    document.querySelectorAll('.member-card').forEach((card, i) => {
-      card.querySelector('.member-number').textContent = `${tr.member_label} ${i + 1}`;
+      renderSummary();
     });
+    groupMembers.appendChild(card);
+    renumberMembers();
+    renderSummary();
+    return card;
   }
 
-  addMemberBtn.addEventListener('click', addMember);
+  function renumberMembers() {
+    const cards = document.querySelectorAll('.member-card');
+    cards.forEach((card, i) => {
+      card.querySelector('.member-number').textContent = `${t('member_label')} ${i + 1}`;
+    });
+    addMemberBtn.classList.toggle('hidden', cards.length >= MAX_MEMBERS);
+  }
+
+  addMemberBtn.addEventListener('click', () => addMember().querySelector('input').focus());
 
   // ══════════════════════════════════════
   // Validation
@@ -687,21 +672,38 @@
     }
     checkUsername(nomeEl, cognomeEl);
 
-    // Validate group members if applicable
-    if (tesistaEl.checked && thesisType === 'group') {
-      document.querySelectorAll('.member-card').forEach(card => {
-        const inputs = card.querySelectorAll('input');
-        const n = inputs[0], c = inputs[1], e = inputs[2];
-        if (!n.value.trim()) { n.classList.add('error'); valid = false; } else n.classList.remove('error');
-        if (!c.value.trim()) { c.classList.add('error'); valid = false; } else c.classList.remove('error');
-        if (!RE_EMAIL.test(e.value.trim())) { e.classList.add('error'); valid = false; } else e.classList.remove('error');
-        checkUsername(n, c);
-      });
-    }
+    memberCards().forEach(card => {
+      const [n, c, e] = card.querySelectorAll('input');
+      if (!n.value.trim()) { n.classList.add('error'); valid = false; } else n.classList.remove('error');
+      if (!c.value.trim()) { c.classList.add('error'); valid = false; } else c.classList.remove('error');
+      if (!RE_EMAIL.test(e.value.trim())) { e.classList.add('error'); valid = false; } else e.classList.remove('error');
+      const p = card.querySelector('select');
+      if (!p.value) { p.classList.add('error'); valid = false; } else p.classList.remove('error');
+      checkUsername(n, c);
+    });
+
+    // Due persone con lo stesso username nello stesso invio: il worker salva
+    // la prima e dà la seconda per già registrata, senza errore. Si ferma qui.
+    const seen = new Map();
+    const dupNames = new Set();
+    people().forEach(p => {
+      const u = finalUsername(p.n.value.trim(), p.c.value.trim()).toLowerCase();
+      if (!u) return;
+      if (seen.has(u)) {
+        [p, seen.get(u)].forEach(q => { q.n.classList.add('error'); q.c.classList.add('error'); });
+        dupNames.add(u);
+        valid = false;
+      } else {
+        seen.set(u, p);
+      }
+    });
 
     if (badNames.length) {
       statusMsg.className = 'status-message error';
       statusText.textContent = t('err_username').replace('{names}', () => badNames.join(', '));
+    } else if (dupNames.size) {
+      statusMsg.className = 'status-message error';
+      statusText.textContent = t('err_duplicate').replace('{names}', () => [...dupNames].join(', '));
     }
     return valid;
   }
@@ -713,6 +715,7 @@
     });
   });
   annoEl.addEventListener('change', () => showError('anno-error', false));
+  form.addEventListener('input', renderSummary);
 
   // ══════════════════════════════════════
   // Submit
@@ -722,43 +725,22 @@
     statusMsg.className = 'status-message';
     if (!validateForm()) return;
 
-    const nome = nomeEl.value.trim();
-    const cognome = cognomeEl.value.trim();
-    const isTesista = tesistaEl.checked;
-
-    // Build main user payload
-    const mainUser = {
-      timestamp: new Date().toISOString(),
-      username: makeUsername(nome, cognome),
-      full_name: capitalize(nome) + ' ' + capitalize(cognome),
-      email: emailEl.value.trim().toLowerCase(),
-      team: teamEl.value.trim(),
-      tesista: isTesista ? 'yes' : 'no',
-      anno_corso: isTesista ? '' : annoEl.value,
-      status: 'pending'
-    };
-
-    // Collect all payloads (main + group members)
-    const allUsers = [mainUser];
-
-    if (isTesista && thesisType === 'group') {
-      document.querySelectorAll('.member-card').forEach(card => {
-        const inputs = card.querySelectorAll('input');
-        const mn = inputs[0].value.trim();
-        const mc = inputs[1].value.trim();
-        const me = inputs[2].value.trim();
-        allUsers.push({
-          timestamp: new Date().toISOString(),
-          username: makeUsername(mn, mc),
-          full_name: capitalize(mn) + ' ' + capitalize(mc),
-          email: me.toLowerCase(),
-          team: teamEl.value.trim(),
-          tesista: 'yes',
-          anno_corso: '',
-          status: 'pending'
-        });
-      });
-    }
+    // Chi compila usa interruttore e anno; ogni compagno il proprio select.
+    const team = teamEl.value.trim();
+    const allUsers = people().map(p => {
+      const n = p.n.value.trim(), c = p.c.value.trim();
+      const percorso = p.percorso ? p.percorso.value : (tesistaEl.checked ? 'tesi' : annoEl.value);
+      return {
+        timestamp: new Date().toISOString(),
+        username: makeUsername(n, c),
+        full_name: makeFullName(n, c),
+        email: p.e.value.trim().toLowerCase(),
+        team,
+        tesista: percorso === 'tesi' ? 'yes' : 'no',
+        anno_corso: percorso === 'tesi' ? '' : percorso,
+        status: 'pending'
+      };
+    });
 
     submitBtn.classList.add('loading');
     submitBtn.disabled = true;
@@ -797,21 +779,17 @@
       statusText.textContent = tr.msg_success;
       form.reset();
       groupMembers.innerHTML = '';
-      memberCount = 0;
-      thesisType = 'single';
-      document.querySelectorAll('#thesis-segmented .seg-btn').forEach(b => {
-        b.classList.toggle('active', b.getAttribute('data-value') === 'single');
-      });
-      updatePreview();
-      updateVisibility();
+      setMode('single');
     } catch (err) {
       statusMsg.className = 'status-message error';
-      statusText.textContent = tr.msg_error.replace('{err}', err.message);
+      statusText.textContent = tr.msg_error.replace('{err}', () => err.message);
     } finally {
       submitBtn.classList.remove('loading');
       submitBtn.disabled = false;
     }
   });
+
+  updateVisibility();
 </script>
 
 </body>

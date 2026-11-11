@@ -33,7 +33,7 @@ const VALID_STATUS = new Set([
   "pending", "created", "existing", "removed", "duplicate", "error",
 ]);
 
-// Il form manda al massimo un tesista + i membri del gruppo.
+// Il form manda chi compila più al massimo 24 compagni di gruppo.
 const MAX_BATCH_PUBLIC = 25;
 const MAX_BATCH_ADMIN = 500;
 
