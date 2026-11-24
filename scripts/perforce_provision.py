@@ -119,6 +119,14 @@ crashinfo--*
 *\\Intermediate\\*
 *\\Saved\\*
 *\\*.sln
+
+# Cartelle generate alla radice del progetto: le regole *\\X\\* sopra
+# valgono solo un livello piu in basso (es. Plugins\\P\\Intermediate)
+DerivedDataCache\\*
+Intermediate\\*
+Saved\\*
+Binaries\\*.pdb
+Binaries\\*-Shipping.*
 """
 # ══════════════════════════════════════════════════════════════
 
